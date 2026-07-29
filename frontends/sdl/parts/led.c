@@ -56,14 +56,15 @@ static const SdlPartOps LED_OPS = {
 bool sdl_part_led_init(SdlPart *part, const CircuitPartConfig *config)
 {
     SimLed *led = malloc(sizeof(*led));
+    const char *color = circuit_part_get(config, "color", "red");
     uint8_t r = 255, g = 45, b = 35;
 
     if (led == NULL) return false;
-    if (strcmp(config->color, "green") == 0) {
+    if (strcmp(color, "green") == 0) {
         r = 45; g = 255; b = 65;
-    } else if (strcmp(config->color, "blue") == 0) {
+    } else if (strcmp(color, "blue") == 0) {
         r = 45; g = 110; b = 255;
-    } else if (strcmp(config->color, "yellow") == 0) {
+    } else if (strcmp(color, "yellow") == 0) {
         r = 255; g = 210; b = 35;
     }
 

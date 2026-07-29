@@ -57,7 +57,7 @@ int main(int argc, char **argv)
     Uint64 next_frame_counter;
     Uint64 counter_frequency;
     double cycle_fraction = 0.0;
-    const double cycles_per_second = 1000000.0;
+    double cycles_per_second;
     const double frames_per_second = 60.0;
 
     if (argc < 2 || argc > 3) {
@@ -82,8 +82,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "创建电路失败：%s\n", error);
         return EXIT_FAILURE;
     }
+    cycles_per_second = circuit.board.mcu->cycles_per_second;
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) != 0) {
         fprintf(stderr, "SDL初始化失败：%s\n", SDL_GetError());
+        sdl_circuit_destroy(&circuit);
         return EXIT_FAILURE;
     }
 
@@ -109,6 +111,7 @@ int main(int argc, char **argv)
         if (renderer != NULL) SDL_DestroyRenderer(renderer);
         if (window != NULL) SDL_DestroyWindow(window);
         SDL_Quit();
+        sdl_circuit_destroy(&circuit);
         return EXIT_FAILURE;
     }
     SDL_SetWindowMinimumSize(window, 480, 300);
@@ -167,7 +170,8 @@ int main(int argc, char **argv)
                 cycle_fraction = 0;
             }
         }
-        for (i = 0; i < cycles_to_run && !circuit.cpu.stopped; ++i) {
+        for (i = 0; i < cycles_to_run &&
+                    !sim_mcu_stopped(circuit.board.mcu); ++i) {
             sdl_circuit_step(&circuit);
         }
 

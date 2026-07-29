@@ -13,6 +13,7 @@ typedef struct {
     uint64_t transitions;
     uint64_t cycles_since_edge;
     uint64_t half_period_cycles;
+    uint32_t cycles_per_second;
     double frequency_hz;
 } SimBuzzer;
 

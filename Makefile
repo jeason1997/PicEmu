@@ -8,6 +8,7 @@ TARGET := $(BUILD_DIR)/picemu
 SDL_TARGET := $(BUILD_DIR)/picemu-sdl
 HEX2C_TARGET := $(BUILD_DIR)/hex2c
 UNIT_TEST := $(BUILD_DIR)/tests/test_cpu
+SDL_PART_TEST := $(BUILD_DIR)/tests/test_sdl_parts
 EXAMPLE ?= button
 
 # 每组源文件对应一个明确的功能模块。build/obj会镜像源目录结构，
@@ -24,6 +25,8 @@ CLI_SOURCES := \
 
 SIM_SOURCES := \
 	src/sim/device.c \
+	src/sim/mcu.c \
+	src/sim/mcu/pic10.c \
 	src/sim/devices/led.c \
 	src/sim/devices/button.c \
 	src/sim/devices/buzzer.c \
@@ -43,24 +46,41 @@ SDL_FRONTEND_SOURCES := \
 	frontends/sdl/parts/button.c \
 	frontends/sdl/parts/buzzer.c
 
+SDL_PART_SOURCES := \
+	frontends/sdl/common/sdl_text.c \
+	frontends/sdl/parts/part.c \
+	frontends/sdl/parts/registry.c \
+	frontends/sdl/parts/pic10.c \
+	frontends/sdl/parts/led.c \
+	frontends/sdl/parts/button.c \
+	frontends/sdl/parts/buzzer.c
+
 CLI_OBJECTS := $(addprefix $(OBJECT_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(CLI_SOURCES:.c=.o))
 SDL_OBJECTS := $(addprefix $(OBJECT_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(SIM_SOURCES:.c=.o) $(PLATFORM_SOURCES:.c=.o) \
 	$(CONFIG_SOURCES:.c=.o) $(SDL_FRONTEND_SOURCES:.c=.o))
 UNIT_TEST_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
-	tests/unit/test_cpu.o $(CORE_SOURCES:.c=.o) $(SIM_SOURCES:.c=.o))
+	tests/unit/test_cpu.o $(CORE_SOURCES:.c=.o) $(SIM_SOURCES:.c=.o) \
+	$(CONFIG_SOURCES:.c=.o))
+SDL_PART_TEST_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
+	tests/sdl/test_parts.o $(CORE_SOURCES:.c=.o) \
+	src/sim/device.o src/sim/mcu.o src/sim/mcu/pic10.o src/sim/board.o \
+	src/sim/devices/led.o src/sim/devices/button.o \
+	src/sim/devices/buzzer.o src/sim/config/circuit_config.o \
+	frontends/sdl/circuit/sdl_circuit.o $(SDL_PART_SOURCES:.c=.o))
 HEX2C_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
 	tools/hex2c.o src/firmware/hex_loader.o)
 
 ALL_OBJECTS := $(sort $(CLI_OBJECTS) $(SDL_OBJECTS) \
 	$(UNIT_TEST_OBJECTS) $(HEX2C_OBJECTS))
+ALL_OBJECTS += $(SDL_PART_TEST_OBJECTS)
 DEPFILES := $(ALL_OBJECTS:.o=.d)
 
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
 
-.PHONY: all clean firmware example-firmware run test unit-test integration-test \
+.PHONY: all clean firmware example-firmware run test unit-test sdl-part-test integration-test \
 	sdl run-sdl tools
 
 all: $(TARGET)
@@ -76,6 +96,15 @@ $(OBJECT_DIR)/%.o: %.c
 
 # SDL源文件需要额外的SDL编译参数和前端内部头文件搜索路径。
 $(OBJECT_DIR)/frontends/sdl/%.o: frontends/sdl/%.c
+	@test -n "$(SDL_LIBS)" || { \
+		echo "错误：没有找到SDL2开发库，请安装libsdl2-dev。"; \
+		exit 1; \
+	}
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) -Ifrontends/sdl $(CFLAGS) $(SDL_CFLAGS) \
+		-MMD -MP -c $< -o $@
+
+$(OBJECT_DIR)/tests/sdl/%.o: tests/sdl/%.c
 	@test -n "$(SDL_LIBS)" || { \
 		echo "错误：没有找到SDL2开发库，请安装libsdl2-dev。"; \
 		exit 1; \
@@ -116,10 +145,17 @@ run: all example-firmware
 unit-test: $(UNIT_TEST)
 	$(UNIT_TEST)
 
+$(SDL_PART_TEST): $(SDL_PART_TEST_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@ $(SDL_LIBS) -lm
+
+sdl-part-test: $(SDL_PART_TEST)
+	$(SDL_PART_TEST)
+
 integration-test: all firmware
 	sh tests/integration/test_examples.sh "$(abspath $(TARGET))"
 
-test: unit-test integration-test
+test: unit-test sdl-part-test integration-test
 
 clean:
 	rm -rf $(BUILD_DIR)

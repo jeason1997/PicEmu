@@ -16,28 +16,17 @@ static SimLevel combine(SimLevel current, SimLevel driver)
     return current == driver ? current : SIM_LEVEL_CONFLICT;
 }
 
-static SimLevel pic_drive(const Pic10Cpu *cpu, unsigned pin)
-{
-    if (pin >= cpu->device->gpio_count ||
-        (cpu->device->pins[pin].capabilities & PIC_PIN_CAP_OUTPUT) == 0 ||
-        (cpu->tris_gpio & (1u << pin)) != 0) {
-        return SIM_LEVEL_Z;
-    }
-    return (cpu->gpio_latch & (1u << pin)) != 0
-        ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW;
-}
-
-void sim_board_init(SimBoard *board, Pic10Cpu *cpu)
+void sim_board_init(SimBoard *board, SimMcu *mcu)
 {
     memset(board, 0, sizeof(*board));
-    board->cpu = cpu;
+    board->mcu = mcu;
 }
 
 int sim_board_add_net(SimBoard *board, const char *name)
 {
     SimNet *net;
 
-    if (board->net_count >= SIM_BOARD_MAX_NETS) {
+    if (board->net_count >= SIM_MAX_NETS) {
         return -1;
     }
     net = &board->nets[board->net_count];
@@ -55,18 +44,18 @@ static bool add_endpoint(SimBoard *board, int index, SimEndpoint endpoint)
         return false;
     }
     net = &board->nets[index];
-    if (net->endpoint_count >= SIM_BOARD_MAX_ENDPOINTS) {
+    if (net->endpoint_count >= SIM_MAX_ENDPOINTS) {
         return false;
     }
     net->endpoints[net->endpoint_count++] = endpoint;
     return true;
 }
 
-bool sim_board_connect_pic(SimBoard *board, int net, unsigned pic_pin)
+bool sim_board_connect_mcu(SimBoard *board, int net, unsigned mcu_pin)
 {
-    SimEndpoint endpoint = {.type = SIM_ENDPOINT_PIC_PIN};
-    endpoint.target.pic_pin = pic_pin;
-    return pic_pin < board->cpu->device->gpio_count &&
+    SimEndpoint endpoint = {.type = SIM_ENDPOINT_MCU_PIN};
+    endpoint.target.mcu_pin = mcu_pin;
+    return mcu_pin < sim_mcu_pin_count(board->mcu) &&
            add_endpoint(board, net, endpoint);
 }
 
@@ -84,7 +73,7 @@ bool sim_board_connect_device(SimBoard *board, int net,
         known |= board->devices[i] == device;
     }
     if (!known) {
-        if (board->device_count >= SIM_BOARD_MAX_DEVICES) {
+        if (board->device_count >= SIM_MAX_DEVICES) {
             return false;
         }
         board->devices[board->device_count++] = device;
@@ -92,6 +81,27 @@ bool sim_board_connect_device(SimBoard *board, int net,
     endpoint.target.device.device = device;
     endpoint.target.device.pin = device_pin;
     return add_endpoint(board, net, endpoint);
+}
+
+bool sim_board_merge_nets(SimBoard *board, int keep, int remove)
+{
+    SimNet *target;
+    SimNet *source;
+    unsigned i;
+
+    if (keep < 0 || remove < 0 || keep == remove ||
+        (unsigned)keep >= board->net_count ||
+        (unsigned)remove >= board->net_count) return false;
+    target = &board->nets[keep];
+    source = &board->nets[remove];
+    if (target->endpoint_count + source->endpoint_count >
+        SIM_MAX_ENDPOINTS) return false;
+    for (i = 0; i < source->endpoint_count; ++i) {
+        target->endpoints[target->endpoint_count++] = source->endpoints[i];
+    }
+    source->endpoint_count = 0;
+    source->level = SIM_LEVEL_Z;
+    return true;
 }
 
 void sim_board_resolve(SimBoard *board)
@@ -107,8 +117,9 @@ void sim_board_resolve(SimBoard *board)
             SimEndpoint *endpoint = &net->endpoints[e];
             SimLevel drive = SIM_LEVEL_Z;
 
-            if (endpoint->type == SIM_ENDPOINT_PIC_PIN) {
-                drive = pic_drive(board->cpu, endpoint->target.pic_pin);
+            if (endpoint->type == SIM_ENDPOINT_MCU_PIN) {
+                drive = sim_mcu_pin_drive(board->mcu,
+                                          endpoint->target.mcu_pin);
             } else {
                 drive = endpoint->target.device.device
                     ->drive[endpoint->target.device.pin];
@@ -119,11 +130,9 @@ void sim_board_resolve(SimBoard *board)
 
         for (e = 0; e < net->endpoint_count; ++e) {
             SimEndpoint *endpoint = &net->endpoints[e];
-            if (endpoint->type == SIM_ENDPOINT_PIC_PIN) {
-                bool driven = resolved != SIM_LEVEL_Z;
-                bool high = resolved == SIM_LEVEL_HIGH;
-                pic10_drive_pin(board->cpu, endpoint->target.pic_pin,
-                                    driven, high);
+            if (endpoint->type == SIM_ENDPOINT_MCU_PIN) {
+                sim_mcu_set_pin_input(board->mcu,
+                                      endpoint->target.mcu_pin, resolved);
             } else {
                 SimDevice *device = endpoint->target.device.device;
                 unsigned pin = endpoint->target.device.pin;
@@ -143,7 +152,7 @@ void sim_board_reset(SimBoard *board)
 {
     unsigned i;
 
-    pic10_reset(board->cpu, PIC10_RESET_MCLR);
+    sim_mcu_reset(board->mcu);
     for (i = 0; i < board->device_count; ++i) {
         SimDevice *device = board->devices[i];
         if (device->ops != NULL && device->ops->reset != NULL) {
@@ -153,13 +162,13 @@ void sim_board_reset(SimBoard *board)
     sim_board_resolve(board);
 }
 
-Pic10StepResult sim_board_step(SimBoard *board)
+unsigned sim_board_step(SimBoard *board)
 {
-    Pic10StepResult result;
+    unsigned cycles;
     unsigned i;
 
     sim_board_resolve(board);
-    result = pic10_step(board->cpu);
+    cycles = sim_mcu_step(board->mcu);
     /*
      * 先推进外设时间，再解析本条指令造成的引脚边沿。这样蜂鸣器等测量
      * 边沿间隔的设备会把当前指令周期计入刚结束的电平持续时间。
@@ -167,9 +176,10 @@ Pic10StepResult sim_board_step(SimBoard *board)
     for (i = 0; i < board->device_count; ++i) {
         SimDevice *device = board->devices[i];
         if (device->ops != NULL && device->ops->tick != NULL) {
-            device->ops->tick(device, result.instruction_cycles);
+            device->ops->tick(device, cycles,
+                              board->mcu->cycles_per_second);
         }
     }
     sim_board_resolve(board);
-    return result;
+    return cycles;
 }

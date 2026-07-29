@@ -40,6 +40,30 @@ static SDL_Color wire_color(const char *name)
     return (SDL_Color){150, 160, 170, 255};
 }
 
+static int endpoint_net(const SdlCircuit *circuit, unsigned part,
+                        const char *pin)
+{
+    unsigned i;
+    for (i = 0; i < circuit->wire_count; ++i) {
+        const SdlWire *wire = &circuit->wires[i];
+        if ((wire->part_a == part && strcmp(wire->pin_a, pin) == 0) ||
+            (wire->part_b == part && strcmp(wire->pin_b, pin) == 0)) {
+            return wire->net;
+        }
+    }
+    return -1;
+}
+
+static void replace_wire_net(SdlCircuit *circuit, int old_net, int new_net)
+{
+    unsigned i;
+    for (i = 0; i < circuit->wire_count; ++i) {
+        if (circuit->wires[i].net == old_net) {
+            circuit->wires[i].net = new_net;
+        }
+    }
+}
+
 static bool part_pin(SdlPart *part, const char *name,
                      unsigned *pin, SDL_Point *point, bool *is_pic,
                      bool *is_signal)
@@ -84,7 +108,9 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
         return false;
     }
     pic10_init(&circuit->cpu, image, device);
-    sim_board_init(&circuit->board, &circuit->cpu);
+    sim_pic10_mcu_init(&circuit->mcu_adapter, &circuit->cpu,
+                       config->clock_hz);
+    sim_board_init(&circuit->board, &circuit->mcu_adapter.base);
 
     for (i = 0; i < config->connection_count; ++i) {
         const CircuitConnectionConfig *source = &config->connections[i];
@@ -115,18 +141,38 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
             /* VDD/VSS目前仅用于绘图，不进入数字GPIO网络。 */
             wire->net = -1;
         } else {
-            wire->net = sim_board_add_net(&circuit->board, source->from);
-            if (wire->net < 0 || pic_a == pic_b ||
-                !(pic_a ? sim_board_connect_pic(&circuit->board,
-                                                wire->net, pin_a)
-                         : sim_board_connect_device(&circuit->board,
-                             wire->net, part_a->device, pin_a)) ||
-                !(pic_b ? sim_board_connect_pic(&circuit->board,
-                                                wire->net, pin_b)
-                         : sim_board_connect_device(&circuit->board,
-                             wire->net, part_b->device, pin_b))) {
+            int net_a = endpoint_net(circuit, wire->part_a, wire->pin_a);
+            int net_b = endpoint_net(circuit, wire->part_b, wire->pin_b);
+            bool connect_a = net_a < 0;
+            bool connect_b = net_b < 0;
+
+            if (net_a >= 0 && net_b >= 0 && net_a != net_b) {
+                if (!sim_board_merge_nets(&circuit->board, net_a, net_b)) {
+                    snprintf(error, error_size, "网络合并失败：%s -> %s",
+                             source->from, source->to);
+                    sdl_circuit_destroy(circuit);
+                    return false;
+                }
+                replace_wire_net(circuit, net_b, net_a);
+                net_b = net_a;
+            }
+            wire->net = net_a >= 0 ? net_a :
+                        net_b >= 0 ? net_b :
+                        sim_board_add_net(&circuit->board, source->from);
+
+            if (wire->net < 0 ||
+                (connect_a &&
+                 !(pic_a ? sim_board_connect_mcu(&circuit->board,
+                                                 wire->net, pin_a)
+                          : sim_board_connect_device(&circuit->board,
+                              wire->net, part_a->device, pin_a))) ||
+                (connect_b &&
+                 !(pic_b ? sim_board_connect_mcu(&circuit->board,
+                                                 wire->net, pin_b)
+                          : sim_board_connect_device(&circuit->board,
+                              wire->net, part_b->device, pin_b)))) {
                 snprintf(error, error_size,
-                         "连接必须由一个主控引脚连接一个外设引脚：%s -> %s",
+                         "无法连接网络端点：%s -> %s",
                          source->from, source->to);
                 sdl_circuit_destroy(circuit);
                 return false;

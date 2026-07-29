@@ -4,6 +4,7 @@
 #include "picemu/sim/circuit_config.h"
 #include "picemu/firmware/hex_loader.h"
 #include "picemu/core/pic10_cpu.h"
+#include "picemu/sim/mcu/pic10.h"
 #include "parts/part.h"
 #include "picemu/sim/board.h"
 
@@ -23,6 +24,7 @@ typedef struct {
 
 typedef struct {
     Pic10Cpu cpu;
+    SimPic10Mcu mcu_adapter;
     SimBoard board;
     SdlPart parts[CIRCUIT_MAX_PARTS];
     unsigned part_count;

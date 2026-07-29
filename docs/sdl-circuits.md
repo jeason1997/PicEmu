@@ -31,6 +31,7 @@ make firmware
 ```json
 {
   "version": 1,
+  "clockHz": 4000000,
   "firmware": "examples/blink/build/firmware.hex",
   "parts": [
     {
@@ -56,6 +57,10 @@ make firmware
 `left`和`top`使用960×600逻辑画布坐标。连接端点格式为
 `器件ID:引脚名`。
 
+`clockHz`表示主控振荡器频率，PIC10的指令周期频率按`clockHz / 4`
+计算。省略时默认使用4 MHz。这个时基同时用于实时执行速度、外设推进和
+蜂鸣器频率测量。
+
 | type | 引脚 | attrs |
 |---|---|---|
 | `pic10f200` | GP0、GP1、GP2、GP3；VDD/VSS仅显示 | 无 |
@@ -65,6 +70,8 @@ make firmware
 | `buzzer` | 1或IN | 无 |
 
 连接数组第三项是导线颜色。第四项为未来的走线指令预留，目前忽略。
+同一个端点出现在多条连接中时，这些连接会自动合并为一个公共网络，因此
+可以把一个GPIO同时连接到多个外设，也可以先连接外设再连接主控。
 完整示例见：
 
 - [`examples/blink/`](../examples/blink/)
@@ -79,8 +86,12 @@ make firmware
 
 1. 在 `src/sim/devices/` 增加独立电气模型；
 2. 在 `frontends/sdl/parts/` 增加外观、引脚位置和交互；
-3. 在 `sdl_circuit.c` 注册JSON的 `type`；
+3. 在 `frontends/sdl/parts/registry.c` 注册JSON的 `type`；
 4. 在 `examples/<名称>/` 放置 `main.c`、`diagram.json` 和 Makefile；
 5. 增加相应集成测试。
 
 SDL主循环不需要知道新器件的坐标、引脚或内部行为。
+
+`attrs`由通用键值表保存，解析器不认识也不需要认识`color`、
+`activeLow`等器件专用属性。每个器件从自己的初始化函数读取所需字段，
+因此增加新属性不需要修改公共`CircuitPartConfig`。

@@ -147,13 +147,25 @@ static bool parse_attrs(JsonReader *reader, CircuitPartConfig *part)
         copy_text(key, sizeof(key), reader->text);
         next_token(reader);
         if (!accept(reader, TOKEN_COLON)) return false;
-        if (strcmp(key, "color") == 0 && reader->type == TOKEN_STRING) {
-            copy_text(part->color, sizeof(part->color), reader->text);
-            next_token(reader);
-        } else if (strcmp(key, "activeLow") == 0 &&
-                   (reader->type == TOKEN_TRUE ||
-                    reader->type == TOKEN_FALSE)) {
-            part->active_low = reader->type == TOKEN_TRUE;
+        if (reader->type == TOKEN_STRING ||
+            reader->type == TOKEN_NUMBER ||
+            reader->type == TOKEN_TRUE ||
+            reader->type == TOKEN_FALSE) {
+            CircuitProperty *property =
+                part->property_count < SIM_MAX_PROPERTIES
+                    ? &part->properties[part->property_count++] : NULL;
+            if (property == NULL) return false;
+            copy_text(property->key, sizeof(property->key), key);
+            if (reader->type == TOKEN_STRING) {
+                copy_text(property->value, sizeof(property->value),
+                          reader->text);
+            } else if (reader->type == TOKEN_NUMBER) {
+                snprintf(property->value, sizeof(property->value),
+                         "%ld", reader->number);
+            } else {
+                copy_text(property->value, sizeof(property->value),
+                          reader->type == TOKEN_TRUE ? "true" : "false");
+            }
             next_token(reader);
         } else if (!skip_value(reader)) {
             return false;
@@ -167,8 +179,6 @@ static bool parse_attrs(JsonReader *reader, CircuitPartConfig *part)
 static bool parse_part(JsonReader *reader, CircuitPartConfig *part)
 {
     memset(part, 0, sizeof(*part));
-    part->active_low = true;
-    copy_text(part->color, sizeof(part->color), "red");
     if (!accept(reader, TOKEN_LBRACE)) return false;
     while (reader->type != TOKEN_RBRACE) {
         char key[64];
@@ -265,6 +275,12 @@ static bool parse_document(JsonReader *reader, CircuitConfig *config)
         if (strcmp(key, "version") == 0 && reader->type == TOKEN_NUMBER) {
             config->version = (unsigned)reader->number;
             next_token(reader);
+        } else if (strcmp(key, "clockHz") == 0 &&
+                   reader->type == TOKEN_NUMBER &&
+                   reader->number > 0 &&
+                   (unsigned long)reader->number <= UINT32_MAX) {
+            config->clock_hz = (uint32_t)reader->number;
+            next_token(reader);
         } else if (strcmp(key, "firmware") == 0 &&
                    reader->type == TOKEN_STRING) {
             copy_text(config->firmware, sizeof(config->firmware),
@@ -314,6 +330,7 @@ bool circuit_config_load(const char *path, CircuitConfig *config,
     fclose(file);
 
     memset(config, 0, sizeof(*config));
+    config->clock_hz = 4000000u;
     reader.cursor = data;
     reader.line = 1;
     next_token(&reader);
@@ -326,4 +343,38 @@ bool circuit_config_load(const char *path, CircuitConfig *config,
     }
     free(data);
     return ok;
+}
+
+const char *circuit_part_get(const CircuitPartConfig *part,
+                             const char *key, const char *fallback)
+{
+    unsigned i;
+    for (i = 0; i < part->property_count; ++i) {
+        if (strcmp(part->properties[i].key, key) == 0) {
+            return part->properties[i].value;
+        }
+    }
+    return fallback;
+}
+
+bool circuit_part_get_bool(const CircuitPartConfig *part,
+                           const char *key, bool fallback)
+{
+    const char *value = circuit_part_get(part, key, NULL);
+    if (value == NULL) return fallback;
+    if (strcmp(value, "true") == 0 || strcmp(value, "1") == 0) return true;
+    if (strcmp(value, "false") == 0 || strcmp(value, "0") == 0) return false;
+    return fallback;
+}
+
+long circuit_part_get_long(const CircuitPartConfig *part,
+                           const char *key, long fallback)
+{
+    const char *value = circuit_part_get(part, key, NULL);
+    char *end;
+    long result;
+    if (value == NULL) return fallback;
+    errno = 0;
+    result = strtol(value, &end, 0);
+    return errno == 0 && end != value && *end == '\0' ? result : fallback;
 }

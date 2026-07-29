@@ -16,7 +16,8 @@ typedef struct SimDevice SimDevice;
 
 typedef struct {
     void (*reset)(SimDevice *device);
-    void (*tick)(SimDevice *device, uint64_t cycles);
+    void (*tick)(SimDevice *device, uint64_t cycles,
+                 uint32_t cycles_per_second);
     void (*pin_changed)(SimDevice *device, unsigned pin, SimLevel level);
 } SimDeviceOps;
 

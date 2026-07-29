@@ -66,7 +66,8 @@ bool sdl_part_button_init(SdlPart *part, const CircuitPartConfig *config)
     SimButton *button = malloc(sizeof(*button));
     if (button == NULL) return false;
 
-    sim_button_init(button, part->id, config->active_low);
+    sim_button_init(button, part->id,
+                    circuit_part_get_bool(config, "activeLow", true));
     part->device = &button->base;
     part->view_state = button;
     part->ops = &BUTTON_OPS;

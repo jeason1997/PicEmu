@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "clockHz": 8000000,
+  "firmware": "dummy.hex",
+  "parts": [
+    {
+      "id": "button",
+      "type": "pushbutton",
+      "left": 10,
+      "top": 20,
+      "attrs": {
+        "activeLow": false,
+        "label": "TEST",
+        "debounceMs": 25
+      }
+    }
+  ],
+  "connections": []
+}

@@ -1,10 +1,12 @@
 #include "picemu/core/disassembler.h"
 #include "picemu/core/pic10_cpu.h"
 #include "picemu/sim/board.h"
+#include "picemu/sim/mcu/pic10.h"
 #include "picemu/sim/device.h"
 #include "picemu/sim/devices/led.h"
 #include "picemu/sim/devices/button.h"
 #include "picemu/sim/devices/buzzer.h"
+#include "picemu/sim/circuit_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -237,6 +239,7 @@ static void test_extensible_board_devices(void)
     HexImage image = blank_image(false);
     Pic10Cpu cpu;
     SimBoard board;
+    SimPic10Mcu adapter;
     SimLed led;
     SimButton button;
     int led_net;
@@ -246,14 +249,15 @@ static void test_extensible_board_devices(void)
     pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
     cpu.tris_gpio = 0x0E;     /* GP0输出，GP1~GP3输入 */
 
-    sim_board_init(&board, &cpu);
+    sim_pic10_mcu_init(&adapter, &cpu, 4000000u);
+    sim_board_init(&board, &adapter.base);
     sim_led_init(&led, "测试LED", 255, 0, 0, true);
     sim_button_init(&button, "测试按键", true);
     led_net = sim_board_add_net(&board, "LED_NET");
     button_net = sim_board_add_net(&board, "BUTTON_NET");
-    CHECK(sim_board_connect_pic(&board, led_net, 0));
+    CHECK(sim_board_connect_mcu(&board, led_net, 0));
     CHECK(sim_board_connect_device(&board, led_net, &led.base, 0));
-    CHECK(sim_board_connect_pic(&board, button_net, 3));
+    CHECK(sim_board_connect_mcu(&board, button_net, 3));
     CHECK(sim_board_connect_device(&board, button_net, &button.base, 0));
 
     sim_board_step(&board);
@@ -271,12 +275,66 @@ static void test_passive_buzzer_frequency(void)
 
     sim_buzzer_init(&buzzer, "test buzzer");
     buzzer.base.ops->pin_changed(&buzzer.base, 0, SIM_LEVEL_HIGH);
-    buzzer.base.ops->tick(&buzzer.base, 500);
+    buzzer.base.ops->tick(&buzzer.base, 500, 1000000u);
     buzzer.base.ops->pin_changed(&buzzer.base, 0, SIM_LEVEL_LOW);
 
     /* 1MHz周期下，500周期半波对应1000Hz。 */
     CHECK(buzzer.frequency_hz > 999.0 && buzzer.frequency_hz < 1001.0);
     CHECK(buzzer.half_period_cycles == 500);
+}
+
+static void test_buzzer_uses_configured_clock(void)
+{
+    SimBuzzer buzzer;
+
+    sim_buzzer_init(&buzzer, "clocked buzzer");
+    buzzer.base.ops->pin_changed(&buzzer.base, 0, SIM_LEVEL_HIGH);
+    buzzer.base.ops->tick(&buzzer.base, 1000, 2000000u);
+    buzzer.base.ops->pin_changed(&buzzer.base, 0, SIM_LEVEL_LOW);
+    CHECK(buzzer.frequency_hz > 999.0 && buzzer.frequency_hz < 1001.0);
+}
+
+static void test_network_merge(void)
+{
+    HexImage image = blank_image(false);
+    Pic10Cpu cpu;
+    SimPic10Mcu adapter;
+    SimBoard board;
+    SimLed led_a;
+    SimLed led_b;
+    int first;
+    int second;
+
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
+    sim_pic10_mcu_init(&adapter, &cpu, 4000000u);
+    sim_board_init(&board, &adapter.base);
+    sim_led_init(&led_a, "A", 255, 0, 0, true);
+    sim_led_init(&led_b, "B", 0, 255, 0, true);
+    first = sim_board_add_net(&board, "first");
+    second = sim_board_add_net(&board, "second");
+    CHECK(sim_board_connect_mcu(&board, first, 0));
+    CHECK(sim_board_connect_device(&board, first, &led_a.base, 0));
+    CHECK(sim_board_connect_device(&board, second, &led_b.base, 0));
+    CHECK(sim_board_merge_nets(&board, first, second));
+    CHECK(board.nets[first].endpoint_count == 3);
+    CHECK(board.nets[second].endpoint_count == 0);
+}
+
+static void test_generic_circuit_properties(void)
+{
+    CircuitConfig config;
+    char error[256];
+    const CircuitPartConfig *button;
+
+    CHECK(circuit_config_load("tests/fixtures/circuit_config.json", &config,
+                              error, sizeof(error)));
+    CHECK(config.clock_hz == 8000000u);
+    CHECK(config.part_count == 1);
+    button = &config.parts[0];
+    CHECK(!circuit_part_get_bool(button, "activeLow", true));
+    CHECK(strcmp(circuit_part_get(button, "label", ""), "TEST") == 0);
+    CHECK(circuit_part_get_long(button, "debounceMs", 0) == 25);
+    CHECK(circuit_part_get_long(button, "missing", 123) == 123);
 }
 
 int main(void)
@@ -294,6 +352,9 @@ int main(void)
     test_disassembler();
     test_extensible_board_devices();
     test_passive_buzzer_frequency();
+    test_buzzer_uses_configured_clock();
+    test_network_merge();
+    test_generic_circuit_properties();
 
     if (failures != 0) {
         fprintf(stderr, "CPU单元测试失败：%u项\n", failures);
