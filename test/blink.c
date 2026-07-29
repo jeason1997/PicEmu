@@ -1,23 +1,22 @@
 #include <xc.h>
 
+#define _XTAL_FREQ 4000000
+
 #pragma config WDTE = OFF
 
-void delay(unsigned int count) {
-    while(count--) {
-        __asm("nop");
-    }
-}
+void main(void)
+{
+    TRISGPIO = 0b111000;
+    GPIO = 0;
 
-void main(void) {
-    TRISGPIO = 0b111100;
-    GPIO = 0b000000;
-    
-    while(1) {
-        GP0 = 1;
-        GP1 = 0;
-        delay(50000);
-        GP0 = 0;
-        GP1 = 1;
-        delay(50000);
+    while (1) {
+        GPIO = 0b000001;
+        __delay_ms(5);
+
+        GPIO = 0b000010;
+        __delay_ms(5);
+
+        GPIO = 0b000100;
+        __delay_ms(5);
     }
 }

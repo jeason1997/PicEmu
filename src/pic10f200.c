@@ -26,18 +26,22 @@ uint8_t pic10f200_gpio_value(const Pic10F200 *cpu)
      * PIC10F200 的 GP3 只能作为输入，所以始终把方向位 3 置 1。
      */
     uint8_t tris = (uint8_t)(cpu->tris_gpio | 0x08u);
+    uint8_t weak_pullups = (cpu->option & 0x40u) == 0
+        ? (uint8_t)(~cpu->gpio_input_mask & 0x0Fu) : 0;
+    uint8_t inputs = (uint8_t)(cpu->gpio_inputs | weak_pullups);
     return (uint8_t)(((cpu->gpio_latch & (uint8_t)~tris) |
-                      (cpu->gpio_inputs & tris)) & 0x0Fu);
+                      (inputs & tris)) & 0x0Fu);
 }
 
-static uint8_t read_register(Pic10F200 *cpu, uint8_t address)
+uint8_t pic10f200_read_register(Pic10F200 *cpu, uint8_t address)
 {
     address &= 0x1Fu;
 
     if (address == PIC10_INDF) {
         uint8_t indirect = (uint8_t)(cpu->ram[PIC10_FSR] & 0x1Fu);
         /* FSR 指向 INDF 自己时，PIC 规定读出 0。 */
-        return indirect == PIC10_INDF ? 0 : read_register(cpu, indirect);
+        return indirect == PIC10_INDF
+            ? 0 : pic10f200_read_register(cpu, indirect);
     }
     if (address == PIC10_PCL) {
         return (uint8_t)(cpu->pc & 0xFFu);
@@ -71,6 +75,21 @@ static void write_register(Pic10F200 *cpu, uint8_t address, uint8_t value)
     if (address == PIC10_TMR0) {
         cpu->ram[PIC10_TMR0] = value;
         cpu->timer0_prescaler = 0;
+        /*
+         * 数据手册规定写TMR0后的两个指令周期禁止递增。
+         * 当前写指令还会经过本次tick，所以内部计数设为3。
+         */
+        cpu->timer0_write_inhibit = 3;
+        return;
+    }
+    if (address == PIC10_STATUS) {
+        /*
+         * TO和PD是只读状态位；位6、7在PIC10F200中未实现。
+         * C/DC/Z及页面选择位PA0可以由软件写入。
+         */
+        cpu->ram[PIC10_STATUS] =
+            (uint8_t)((cpu->ram[PIC10_STATUS] & 0x18u) |
+                      (value & 0x27u));
         return;
     }
     if (address == PIC10_GPIO) {
@@ -114,6 +133,10 @@ static void tick_timer0(Pic10F200 *cpu, unsigned instruction_cycles)
     }
 
     for (i = 0; i < instruction_cycles; ++i) {
+        if (cpu->timer0_write_inhibit > 0) {
+            --cpu->timer0_write_inhibit;
+            continue;
+        }
         /* PSA=1 时预分频器分配给 WDT，Timer0 每周期直接加一。 */
         if (BIT(cpu->option, 3)) {
             ++cpu->ram[PIC10_TMR0];
@@ -128,19 +151,136 @@ static void tick_timer0(Pic10F200 *cpu, unsigned instruction_cycles)
     }
 }
 
+static void timer0_external_pulse(Pic10F200 *cpu)
+{
+    if (BIT(cpu->option, 3)) {
+        ++cpu->ram[PIC10_TMR0];
+    } else {
+        uint32_t divider = 1u << ((cpu->option & 7u) + 1u);
+        if (++cpu->timer0_prescaler >= divider) {
+            cpu->timer0_prescaler = 0;
+            ++cpu->ram[PIC10_TMR0];
+        }
+    }
+}
+
+void pic10f200_reset(Pic10F200 *cpu, Pic10ResetReason reason)
+{
+    uint8_t preserved_gpr[16];
+
+    memcpy(preserved_gpr, &cpu->ram[0x10], sizeof(preserved_gpr));
+    memset(cpu->ram, 0, sizeof(cpu->ram));
+    if (reason != PIC10_RESET_POWER_ON) {
+        memcpy(&cpu->ram[0x10], preserved_gpr, sizeof(preserved_gpr));
+    }
+
+    cpu->pc = 0;
+    cpu->w = 0;
+    cpu->stack[0] = 0;
+    cpu->stack[1] = 0;
+    cpu->stack_pointer = 0;
+    cpu->tris_gpio = 0x0Fu;
+    cpu->option = 0xFFu;
+    cpu->gpio_latch = 0;
+    cpu->timer0_prescaler = 0;
+    cpu->timer0_write_inhibit = 0;
+    cpu->watchdog_counter = 0;
+    cpu->sleeping = false;
+    cpu->stopped = false;
+    cpu->stop_reason = NULL;
+    cpu->last_reset = reason;
+
+    /* POR/MCLR后TO、PD为1；WDT运行时复位使TO清零。 */
+    cpu->ram[PIC10_STATUS] =
+        (uint8_t)((1u << PIC10_STATUS_TO) | (1u << PIC10_STATUS_PD));
+    if (reason == PIC10_RESET_WATCHDOG) {
+        set_status_bit(cpu, PIC10_STATUS_TO, false);
+    }
+}
+
 void pic10f200_init(Pic10F200 *cpu, const HexImage *image)
 {
     memset(cpu, 0, sizeof(*cpu));
     memcpy(cpu->program, image->program, sizeof(cpu->program));
+    cpu->config_word = image->config_present ? image->config_word : 0x0FFFu;
+    cpu->watchdog_enabled = BIT(cpu->config_word, 2) != 0;
+    /*
+     * PIC10F200 WDT标称基础超时约18 ms。模拟器以默认4 MHz振荡器下的
+     * 1 us指令周期为单位，因此基础周期取18000。它是数字近似值，不模拟
+     * 芯片、温度和电压造成的WDT振荡器离散性。
+     */
+    cpu->watchdog_base_period = 18000;
+    pic10f200_reset(cpu, PIC10_RESET_POWER_ON);
+}
 
-    cpu->pc = 0;
-    cpu->tris_gpio = 0x0Fu;
-    cpu->option = 0xFFu;
-    cpu->gpio_inputs = 0;
+static bool tick_watchdog(Pic10F200 *cpu, unsigned cycles)
+{
+    uint32_t divider = 1;
+    uint64_t timeout;
 
-    /* 上电后 TO=1、PD=1；其余状态位清零。 */
-    cpu->ram[PIC10_STATUS] =
-        (uint8_t)((1u << PIC10_STATUS_TO) | (1u << PIC10_STATUS_PD));
+    if (!cpu->watchdog_enabled) {
+        return false;
+    }
+    if (BIT(cpu->option, 3)) {
+        divider = 1u << (cpu->option & 7u);
+    }
+    timeout = (uint64_t)cpu->watchdog_base_period * divider;
+    cpu->watchdog_counter += cycles;
+    if (cpu->watchdog_counter < timeout) {
+        return false;
+    }
+
+    cpu->watchdog_counter = 0;
+    if (cpu->sleeping) {
+        cpu->sleeping = false;
+        set_status_bit(cpu, PIC10_STATUS_TO, false);
+        set_status_bit(cpu, PIC10_STATUS_PD, false);
+    } else {
+        pic10f200_reset(cpu, PIC10_RESET_WATCHDOG);
+    }
+    return true;
+}
+
+void pic10f200_drive_pin(Pic10F200 *cpu, unsigned pin,
+                         bool driven, bool high)
+{
+    uint8_t mask;
+    uint8_t old_level;
+    uint8_t new_level;
+
+    if (pin >= 4) {
+        return;
+    }
+    mask = (uint8_t)(1u << pin);
+    old_level = pic10f200_gpio_value(cpu);
+
+    if (driven) {
+        cpu->gpio_input_mask |= mask;
+        if (high) {
+            cpu->gpio_inputs |= mask;
+        } else {
+            cpu->gpio_inputs &= (uint8_t)~mask;
+        }
+    } else {
+        cpu->gpio_input_mask &= (uint8_t)~mask;
+        cpu->gpio_inputs &= (uint8_t)~mask;
+    }
+
+    new_level = pic10f200_gpio_value(cpu);
+    if (pin == 2 && BIT(cpu->option, 5) &&
+        ((old_level ^ new_level) & mask) != 0) {
+        bool rising = (new_level & mask) != 0;
+        bool count_falling = BIT(cpu->option, 4) != 0;
+        if (rising != count_falling) {
+            timer0_external_pulse(cpu);
+        }
+    }
+
+    /* GP0、GP1或GP3变化，并且GPWU=0时，可以从Sleep唤醒。 */
+    if (cpu->sleeping && (cpu->option & 0x80u) == 0 &&
+        pin != 2 && ((old_level ^ new_level) & mask) != 0) {
+        cpu->sleeping = false;
+    }
 }
 
 Pic10StepResult pic10f200_step(Pic10F200 *cpu)
@@ -156,9 +296,18 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
 
     old_gpio = pic10f200_gpio_value(cpu);
 
-    if (cpu->stopped || cpu->sleeping) {
+    if (cpu->stopped) {
         result.old_gpio = old_gpio;
         result.new_gpio = old_gpio;
+        return result;
+    }
+    if (cpu->sleeping) {
+        cpu->cycles += 1;
+        result.woke_from_sleep = tick_watchdog(cpu, 1);
+        result.old_gpio = old_gpio;
+        result.new_gpio = pic10f200_gpio_value(cpu);
+        result.gpio_changed = result.old_gpio != result.new_gpio;
+        result.instruction_cycles = 1;
         return result;
     }
     if (cpu->pc >= PIC10F200_PROGRAM_WORDS) {
@@ -169,7 +318,9 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
         return result;
     }
 
+    result.executed_pc = cpu->pc;
     instruction = (uint16_t)(cpu->program[cpu->pc] & 0x0FFFu);
+    result.instruction = instruction;
 
     /*
      * PIC 在执行指令前先把 PC 指向下一条指令。这样 CALL 压栈的就是
@@ -183,11 +334,15 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
         /* 什么也不做。 */
     } else if (instruction == 0x002u) {          /* OPTION */
         cpu->option = cpu->w;
+        cpu->timer0_prescaler = 0;
+        cpu->watchdog_counter = 0;
     } else if (instruction == 0x003u) {          /* SLEEP */
         cpu->sleeping = true;
+        cpu->watchdog_counter = 0;
         set_status_bit(cpu, PIC10_STATUS_PD, false);
         set_status_bit(cpu, PIC10_STATUS_TO, true);
     } else if (instruction == 0x004u) {          /* CLRWDT */
+        cpu->watchdog_counter = 0;
         set_status_bit(cpu, PIC10_STATUS_PD, true);
         set_status_bit(cpu, PIC10_STATUS_TO, true);
     } else if ((instruction & 0xFF8u) == 0x000u &&
@@ -208,81 +363,81 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
         unsigned rhs;
         unsigned difference;
 
-        operand = read_register(cpu, file);
+        operand = pic10f200_read_register(cpu, file);
         lhs = operand;
         rhs = cpu->w;
         difference = (lhs - rhs) & 0xFFu;
         value = (uint8_t)difference;
+        write_destination(cpu, file, destination_file, value);
         set_status_bit(cpu, PIC10_STATUS_C, lhs >= rhs);
         set_status_bit(cpu, PIC10_STATUS_DC,
                        (lhs & 0x0Fu) >= (rhs & 0x0Fu));
         update_zero(cpu, value);
-        write_destination(cpu, file, destination_file, value);
     } else if ((instruction & 0xFC0u) == 0x0C0u) { /* DECF f,d */
-        value = (uint8_t)(read_register(cpu, file) - 1u);
-        update_zero(cpu, value);
+        value = (uint8_t)(pic10f200_read_register(cpu, file) - 1u);
         write_destination(cpu, file, destination_file, value);
+        update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x100u) { /* IORWF f,d */
-        value = (uint8_t)(read_register(cpu, file) | cpu->w);
-        update_zero(cpu, value);
+        value = (uint8_t)(pic10f200_read_register(cpu, file) | cpu->w);
         write_destination(cpu, file, destination_file, value);
+        update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x140u) { /* ANDWF f,d */
-        value = (uint8_t)(read_register(cpu, file) & cpu->w);
-        update_zero(cpu, value);
+        value = (uint8_t)(pic10f200_read_register(cpu, file) & cpu->w);
         write_destination(cpu, file, destination_file, value);
+        update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x180u) { /* XORWF f,d */
-        value = (uint8_t)(read_register(cpu, file) ^ cpu->w);
-        update_zero(cpu, value);
+        value = (uint8_t)(pic10f200_read_register(cpu, file) ^ cpu->w);
         write_destination(cpu, file, destination_file, value);
+        update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x1C0u) { /* ADDWF f,d */
         unsigned sum;
 
-        operand = read_register(cpu, file);
+        operand = pic10f200_read_register(cpu, file);
         sum = (unsigned)operand + cpu->w;
         value = (uint8_t)sum;
+        write_destination(cpu, file, destination_file, value);
         set_status_bit(cpu, PIC10_STATUS_C, sum > 0xFFu);
         set_status_bit(cpu, PIC10_STATUS_DC,
                        ((operand & 0x0Fu) + (cpu->w & 0x0Fu)) > 0x0Fu);
         update_zero(cpu, value);
-        write_destination(cpu, file, destination_file, value);
     } else if ((instruction & 0xFC0u) == 0x200u) { /* MOVF f,d */
-        value = read_register(cpu, file);
-        update_zero(cpu, value);
+        value = pic10f200_read_register(cpu, file);
         write_destination(cpu, file, destination_file, value);
+        update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x240u) { /* COMF f,d */
-        value = (uint8_t)~read_register(cpu, file);
-        update_zero(cpu, value);
+        value = (uint8_t)~pic10f200_read_register(cpu, file);
         write_destination(cpu, file, destination_file, value);
+        update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x280u) { /* INCF f,d */
-        value = (uint8_t)(read_register(cpu, file) + 1u);
-        update_zero(cpu, value);
+        value = (uint8_t)(pic10f200_read_register(cpu, file) + 1u);
         write_destination(cpu, file, destination_file, value);
+        update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x2C0u) { /* DECFSZ f,d */
-        value = (uint8_t)(read_register(cpu, file) - 1u);
+        value = (uint8_t)(pic10f200_read_register(cpu, file) - 1u);
         write_destination(cpu, file, destination_file, value);
         if (value == 0) {
             cpu->pc = (uint16_t)((cpu->pc + 1u) & 0x01FFu);
             cycles = 2;
         }
     } else if ((instruction & 0xFC0u) == 0x300u) { /* RRF f,d */
-        operand = read_register(cpu, file);
+        operand = pic10f200_read_register(cpu, file);
         value = (uint8_t)((operand >> 1) |
                           (BIT(cpu->ram[PIC10_STATUS],
                                PIC10_STATUS_C) << 7));
         set_status_bit(cpu, PIC10_STATUS_C, (operand & 1u) != 0);
         write_destination(cpu, file, destination_file, value);
     } else if ((instruction & 0xFC0u) == 0x340u) { /* RLF f,d */
-        operand = read_register(cpu, file);
+        operand = pic10f200_read_register(cpu, file);
         value = (uint8_t)((operand << 1) |
                           BIT(cpu->ram[PIC10_STATUS], PIC10_STATUS_C));
         set_status_bit(cpu, PIC10_STATUS_C, (operand & 0x80u) != 0);
         write_destination(cpu, file, destination_file, value);
     } else if ((instruction & 0xFC0u) == 0x380u) { /* SWAPF f,d */
-        operand = read_register(cpu, file);
+        operand = pic10f200_read_register(cpu, file);
         value = (uint8_t)((operand << 4) | (operand >> 4));
         write_destination(cpu, file, destination_file, value);
     } else if ((instruction & 0xFC0u) == 0x3C0u) { /* INCFSZ f,d */
-        value = (uint8_t)(read_register(cpu, file) + 1u);
+        value = (uint8_t)(pic10f200_read_register(cpu, file) + 1u);
         write_destination(cpu, file, destination_file, value);
         if (value == 0) {
             cpu->pc = (uint16_t)((cpu->pc + 1u) & 0x01FFu);
@@ -294,7 +449,7 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
         unsigned bit = (instruction >> 5) & 0x07u;
         uint8_t mask = (uint8_t)(1u << bit);
 
-        operand = read_register(cpu, file);
+        operand = pic10f200_read_register(cpu, file);
         if (operation == 0) {                    /* BCF f,b */
             write_register(cpu, file, (uint8_t)(operand & ~mask));
         } else if (operation == 1) {             /* BSF f,b */
@@ -340,6 +495,8 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
 
     tick_timer0(cpu, cycles);
     cpu->cycles += cycles;
+    result.reset_occurred = tick_watchdog(cpu, cycles) &&
+        cpu->last_reset == PIC10_RESET_WATCHDOG;
 
     result.old_gpio = old_gpio;
     result.new_gpio = pic10f200_gpio_value(cpu);

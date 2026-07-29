@@ -27,6 +27,12 @@ enum {
     PIC10_STATUS_PA0 = 5
 };
 
+typedef enum {
+    PIC10_RESET_POWER_ON,
+    PIC10_RESET_MCLR,
+    PIC10_RESET_WATCHDOG
+} Pic10ResetReason;
+
 typedef struct {
     uint16_t program[PIC10F200_PROGRAM_WORDS];
 
@@ -45,24 +51,36 @@ typedef struct {
     uint8_t tris_gpio;
     uint8_t gpio_latch;
     uint8_t gpio_inputs;
+    uint8_t gpio_input_mask;
     uint8_t option;
 
     uint32_t timer0_prescaler;
+    unsigned timer0_write_inhibit;
+    uint32_t watchdog_counter;
+    uint32_t watchdog_base_period;
+    uint16_t config_word;
     uint64_t cycles;
 
     bool sleeping;
     bool stopped;
+    bool watchdog_enabled;
+    Pic10ResetReason last_reset;
     const char *stop_reason;
 } Pic10F200;
 
 typedef struct {
+    uint16_t executed_pc;
+    uint16_t instruction;
     uint8_t old_gpio;
     uint8_t new_gpio;
     bool gpio_changed;
+    bool reset_occurred;
+    bool woke_from_sleep;
     unsigned instruction_cycles;
 } Pic10StepResult;
 
 void pic10f200_init(Pic10F200 *cpu, const HexImage *image);
+void pic10f200_reset(Pic10F200 *cpu, Pic10ResetReason reason);
 
 /*
  * 执行一条指令。返回的信息包含该指令消耗的周期数及 GPIO 变化。
@@ -72,5 +90,12 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu);
 
 /* 获取引脚上实际可见的 GPIO 电平，而不是单纯返回输出锁存器。 */
 uint8_t pic10f200_gpio_value(const Pic10F200 *cpu);
+
+/* 由外部电路驱动或释放一个输入引脚。GP3始终只能作为输入。 */
+void pic10f200_drive_pin(Pic10F200 *cpu, unsigned pin,
+                         bool driven, bool high);
+
+/* 调试器使用的只读寄存器访问接口，遵循SFR和INDF读取规则。 */
+uint8_t pic10f200_read_register(Pic10F200 *cpu, uint8_t address);
 
 #endif
