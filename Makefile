@@ -7,58 +7,81 @@ OBJECT_DIR := $(BUILD_DIR)/obj
 TARGET := $(BUILD_DIR)/picemu
 SDL_TARGET := $(BUILD_DIR)/picemu-sdl
 HEX2C_TARGET := $(BUILD_DIR)/hex2c
+UNIT_TEST := $(BUILD_DIR)/tests/test_cpu
 
-CORE_SOURCES := src/hex_loader.c src/pic_device.c src/pic10f200.c \
-	src/disassembler.c
-CLI_SOURCES := src/main.c src/vcd_writer.c
-SIM_SOURCES := src/sim_device.c src/sim_led.c src/sim_button.c \
-	src/sim_buzzer.c src/sim_board.c src/pic_platform.c
-SDL_SUPPORT_SOURCE := src/circuit_config.c
-SOURCES := $(CORE_SOURCES) $(CLI_SOURCES)
-OBJECTS := $(patsubst src/%.c,$(OBJECT_DIR)/%.o,$(SOURCES))
-DEPFILES := $(OBJECTS:.o=.d)
-SIM_OBJECTS := $(patsubst src/%.c,$(OBJECT_DIR)/%.o,$(SIM_SOURCES))
-SDL_FRONTEND_SOURCES := frontends/sdl/main.c \
-	frontends/sdl/sdl_circuit.c frontends/sdl/sdl_text.c \
-	frontends/sdl/sdl_part_pic10f200.c frontends/sdl/sdl_part_led.c \
-	frontends/sdl/sdl_part_button.c frontends/sdl/sdl_part_buzzer.c
-SDL_FRONTEND_OBJECTS := $(patsubst frontends/sdl/%.c,\
-	$(OBJECT_DIR)/sdl_%.o,$(SDL_FRONTEND_SOURCES))
-SDL_SUPPORT_OBJECT := $(OBJECT_DIR)/circuit_config.o
+# 每组源文件对应一个明确的功能模块。build/obj会镜像源目录结构，
+# 例如src/core/pic10f200.c生成build/obj/src/core/pic10f200.o。
+CORE_SOURCES := \
+	src/core/pic_device.c \
+	src/core/pic10f200.c \
+	src/core/disassembler.c \
+	src/firmware/hex_loader.c
+
+CLI_SOURCES := \
+	src/cli/main.c \
+	src/cli/vcd_writer.c
+
+SIM_SOURCES := \
+	src/sim/device.c \
+	src/sim/devices/led.c \
+	src/sim/devices/button.c \
+	src/sim/devices/buzzer.c \
+	src/sim/board.c
+
+PLATFORM_SOURCES := src/platform/gpio_bridge.c
+CONFIG_SOURCES := src/sim/config/circuit_config.c
+
+SDL_FRONTEND_SOURCES := \
+	frontends/sdl/app/main.c \
+	frontends/sdl/circuit/sdl_circuit.c \
+	frontends/sdl/common/sdl_text.c \
+	frontends/sdl/parts/pic10f200.c \
+	frontends/sdl/parts/led.c \
+	frontends/sdl/parts/button.c \
+	frontends/sdl/parts/buzzer.c
+
+CLI_OBJECTS := $(addprefix $(OBJECT_DIR)/,$(CORE_SOURCES:.c=.o) \
+	$(CLI_SOURCES:.c=.o))
+SDL_OBJECTS := $(addprefix $(OBJECT_DIR)/,$(CORE_SOURCES:.c=.o) \
+	$(SIM_SOURCES:.c=.o) $(PLATFORM_SOURCES:.c=.o) \
+	$(CONFIG_SOURCES:.c=.o) $(SDL_FRONTEND_SOURCES:.c=.o))
+UNIT_TEST_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
+	test/unit/test_cpu.o $(CORE_SOURCES:.c=.o) $(SIM_SOURCES:.c=.o))
+HEX2C_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
+	tools/hex2c.o src/firmware/hex_loader.o)
+
+ALL_OBJECTS := $(sort $(CLI_OBJECTS) $(SDL_OBJECTS) \
+	$(UNIT_TEST_OBJECTS) $(HEX2C_OBJECTS))
+DEPFILES := $(ALL_OBJECTS:.o=.d)
+
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
-
-UNIT_TEST := $(BUILD_DIR)/tests/test_cpu
-UNIT_TEST_OBJECTS := $(OBJECT_DIR)/test_cpu.o \
-	$(OBJECT_DIR)/pic10f200.o $(OBJECT_DIR)/disassembler.o \
-	$(OBJECT_DIR)/hex_loader.o $(OBJECT_DIR)/pic_device.o \
-	$(OBJECT_DIR)/sim_device.o $(OBJECT_DIR)/sim_led.o \
-	$(OBJECT_DIR)/sim_button.o $(OBJECT_DIR)/sim_buzzer.o \
-	$(OBJECT_DIR)/sim_board.o
 
 .PHONY: all clean firmware run test unit-test sdl run-sdl tools
 
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(OBJECTS) -o $@
+$(TARGET): $(CLI_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
 
-$(OBJECT_DIR)/%.o: src/%.c | $(OBJECT_DIR)
+# 通用规则让新增模块无需再为每个目录复制编译规则。
+$(OBJECT_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(OBJECT_DIR)/test_cpu.o: test/unit/test_cpu.c | $(OBJECT_DIR)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
-$(OBJECT_DIR)/sdl_%.o: frontends/sdl/%.c | $(OBJECT_DIR)
+# SDL源文件需要额外的SDL编译参数和前端内部头文件搜索路径。
+$(OBJECT_DIR)/frontends/sdl/%.o: frontends/sdl/%.c
 	@test -n "$(SDL_LIBS)" || { \
 		echo "错误：没有找到SDL2开发库，请安装libsdl2-dev。"; \
 		exit 1; \
 	}
+	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) -Ifrontends/sdl $(CFLAGS) $(SDL_CFLAGS) \
 		-MMD -MP -c $< -o $@
 
-$(SDL_TARGET): $(SDL_FRONTEND_OBJECTS) $(SDL_SUPPORT_OBJECT) \
-		$(CORE_SOURCES:src/%.c=$(OBJECT_DIR)/%.o) $(SIM_OBJECTS) | $(BUILD_DIR)
+$(SDL_TARGET): $(SDL_OBJECTS)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(SDL_LIBS) -lm
 
 sdl: $(SDL_TARGET)
@@ -66,27 +89,22 @@ sdl: $(SDL_TARGET)
 run-sdl: sdl firmware
 	$(SDL_TARGET) circuits/blink.json
 
-$(OBJECT_DIR)/hex2c.o: tools/hex2c.c | $(OBJECT_DIR)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
-$(HEX2C_TARGET): $(OBJECT_DIR)/hex2c.o $(OBJECT_DIR)/hex_loader.o \
-		| $(BUILD_DIR)
+$(HEX2C_TARGET): $(HEX2C_OBJECTS)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 tools: $(HEX2C_TARGET)
 
-$(UNIT_TEST): $(UNIT_TEST_OBJECTS) | $(BUILD_DIR)/tests
-	$(CC) $(CFLAGS) $(UNIT_TEST_OBJECTS) -o $@
+$(UNIT_TEST): $(UNIT_TEST_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR) $(OBJECT_DIR) $(BUILD_DIR)/tests:
-	mkdir -p $@
-
-# PIC 固件由 test/Makefile 管理，这里提供一个方便的转发入口。
 firmware:
 	$(MAKE) -C test firmware
 
 run: all firmware
-	$(TARGET) test/build/blink.hex --cycles 3500000
+	$(TARGET) test/build/blink.hex --cycles 120000 \
+		--events test/button_events.txt
 
 unit-test: $(UNIT_TEST)
 	$(UNIT_TEST)
@@ -98,6 +116,4 @@ clean:
 	rm -rf $(BUILD_DIR)
 	$(MAKE) -C test clean
 
--include $(DEPFILES) $(SIM_OBJECTS:.o=.d) $(OBJECT_DIR)/test_cpu.d \
-	$(SDL_FRONTEND_OBJECTS:.o=.d) $(SDL_SUPPORT_OBJECT:.o=.d) \
-	$(OBJECT_DIR)/hex2c.d
+-include $(DEPFILES)

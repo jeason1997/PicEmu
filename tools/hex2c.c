@@ -1,4 +1,4 @@
-#include "hex_loader.h"
+#include "picemu/firmware/hex_loader.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -36,7 +36,7 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    printf("#include \"hex_loader.h\"\n\n");
+    printf("#include \"picemu/firmware/hex_loader.h\"\n\n");
     printf("const HexImage %s_image = {\n", symbol);
     printf("    .program = {\n");
     for (i = 0; i < PIC10F200_PROGRAM_WORDS; ++i) {

@@ -20,7 +20,7 @@
     {
       "id": "led1",
       "type": "led",
-      "left": 200,
+      "left": 150,
       "top": 320,
       "attrs": {
         "color": "green"

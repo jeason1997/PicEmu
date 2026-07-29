@@ -1,7 +1,7 @@
-#include "disassembler.h"
-#include "pic10f200.h"
-#include "sim_board.h"
-#include "sim_device.h"
+#include "picemu/core/disassembler.h"
+#include "picemu/core/pic10f200.h"
+#include "picemu/sim/board.h"
+#include "picemu/sim/device.h"
 
 #include <stdio.h>
 #include <stdlib.h>
