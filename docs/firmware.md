@@ -23,7 +23,19 @@ make -C test firmware \
   DFP=/path/to/PIC10-12Fxxx_DFP/version/xc8
 ```
 
-所有XC8产物位于 `test/build/`。模拟器加载其中的 `blink.hex`。
+每个示例的XC8产物位于自己的 `build/`，例如：
+
+```text
+examples/blink/build/firmware.hex
+examples/button/build/firmware.hex
+examples/buzzer/build/firmware.hex
+```
+
+构建单个示例：
+
+```sh
+make -C examples/blink
+```
 
 ## 嵌入固件
 
@@ -31,9 +43,8 @@ make -C test firmware \
 
 ```sh
 make tools
-./build/hex2c test/build/blink.hex blink > blink_firmware.c
+./build/hex2c examples/blink/build/firmware.hex blink > blink_firmware.c
 ```
 
 生成文件提供 `const HexImage blink_image`，可以直接传给
 `pic10f200_init()`。
-

@@ -23,10 +23,10 @@ make
 示例：
 
 ```sh
-./build/picemu test/build/blink.hex --disassemble
-./build/picemu test/build/blink.hex --cycles 100 --trace --dump
-./build/picemu test/build/blink.hex --break 0x00E --dump
-./build/picemu test/build/blink.hex \
+./build/picemu examples/blink/build/firmware.hex --disassemble
+./build/picemu examples/blink/build/firmware.hex --cycles 100 --trace --dump
+./build/picemu examples/blink/build/firmware.hex --break 0x00E --dump
+./build/picemu examples/blink/build/firmware.hex \
   --cycles 10000 --vcd build/blink.vcd
 gtkwave build/blink.vcd
 ```
@@ -46,4 +46,3 @@ VCD包含PC、W、STATUS、TMR0、GPIO总线、`gp0`～`gp3`和Sleep状态。
 
 电平可以是 `0`、`1` 或 `z`，`z`表示释放外部驱动。事件在PIC指令边界
 生效；如果目标周期位于两周期指令中间，会在该指令结束后应用。
-

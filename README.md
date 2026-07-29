@@ -14,21 +14,25 @@ GCC 编译，直接执行 MPLAB XC8 生成的 Intel HEX 固件。
 # 构建命令行模拟器
 make
 
-# 构建XC8测试固件并运行自动测试
+# 构建全部XC8示例固件并运行自动测试
 make test
 
-# 构建并运行SDL电路
+# 构建并运行button示例的SDL电路
 sudo apt install libsdl2-dev
 make run-sdl
+
+# 选择其他示例
+make run-sdl EXAMPLE=blink
+make run-sdl EXAMPLE=buzzer
 ```
 
 手动运行：
 
 ```sh
-./build/picemu test/build/blink.hex \
-  --cycles 120000 --events test/button_events.txt
+./build/picemu examples/button/build/firmware.hex \
+  --cycles 90000 --events examples/button/events.txt
 
-./build/picemu-sdl circuits/blink.json
+./build/picemu-sdl examples/button/diagram.json
 ```
 
 ## 文档

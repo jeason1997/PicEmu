@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "firmware": "examples/blink/build/firmware.hex",
+  "parts": [
+    { "id": "mcu", "type": "pic10f200", "left": 330, "top": 150 },
+    {
+      "id": "led1",
+      "type": "led",
+      "left": 150,
+      "top": 200,
+      "attrs": { "color": "red" }
+    },
+    {
+      "id": "led2",
+      "type": "led",
+      "left": 150,
+      "top": 320,
+      "attrs": { "color": "green" }
+    }
+  ],
+  "connections": [
+    ["mcu:GP0", "led1:A", "red", []],
+    ["mcu:GP1", "led2:A", "green", []]
+  ]
+}

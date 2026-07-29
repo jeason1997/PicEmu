@@ -6,13 +6,13 @@
 sudo apt install libsdl2-dev
 make sdl
 make firmware
-./build/picemu-sdl circuits/blink.json
+./build/picemu-sdl examples/blink/diagram.json
 ```
 
 命令行第二个参数可覆盖JSON中的固件：
 
 ```sh
-./build/picemu-sdl circuits/blink.json another.hex
+./build/picemu-sdl examples/blink/diagram.json another.hex
 ```
 
 操作：
@@ -31,7 +31,7 @@ make firmware
 ```json
 {
   "version": 1,
-  "firmware": "test/build/blink.hex",
+  "firmware": "examples/blink/build/firmware.hex",
   "parts": [
     {
       "id": "mcu",
@@ -64,14 +64,18 @@ make firmware
 | `buzzer` | 1或IN | 无 |
 
 连接数组第三项是导线颜色。第四项为未来的走线指令预留，目前忽略。
-完整示例见 [`circuits/blink.json`](../circuits/blink.json)。
+完整示例见：
+
+- [`examples/blink/`](../examples/blink/)
+- [`examples/button/`](../examples/button/)
+- [`examples/buzzer/`](../examples/buzzer/)
 
 ## 增加可视器件
 
 1. 在 `src/sim/devices/` 增加独立电气模型；
 2. 在 `frontends/sdl/parts/` 增加外观、引脚位置和交互；
 3. 在 `sdl_circuit.c` 注册JSON的 `type`；
-4. 增加示例电路和测试。
+4. 在 `examples/<名称>/` 放置 `main.c`、`diagram.json` 和 Makefile；
+5. 增加相应集成测试。
 
 SDL主循环不需要知道新器件的坐标、引脚或内部行为。
-

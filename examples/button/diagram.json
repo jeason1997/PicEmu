@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "firmware": "examples/button/build/firmware.hex",
+  "parts": [
+    { "id": "mcu", "type": "pic10f200", "left": 330, "top": 150 },
+    {
+      "id": "led1",
+      "type": "led",
+      "left": 150,
+      "top": 200,
+      "attrs": { "color": "red" }
+    },
+    {
+      "id": "led2",
+      "type": "led",
+      "left": 150,
+      "top": 320,
+      "attrs": { "color": "green" }
+    },
+    {
+      "id": "button",
+      "type": "pushbutton",
+      "left": 800,
+      "top": 200,
+      "attrs": { "activeLow": true }
+    }
+  ],
+  "connections": [
+    ["mcu:GP0", "led1:A", "red", []],
+    ["mcu:GP1", "led2:A", "green", []],
+    ["mcu:GP3", "button:1", "blue", []]
+  ]
+}

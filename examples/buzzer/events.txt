@@ -1,0 +1,4 @@
+# cycle pin value
+0 GP3 1
+1000 GP3 0
+80000 GP3 1

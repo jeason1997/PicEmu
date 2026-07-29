@@ -8,6 +8,7 @@ TARGET := $(BUILD_DIR)/picemu
 SDL_TARGET := $(BUILD_DIR)/picemu-sdl
 HEX2C_TARGET := $(BUILD_DIR)/hex2c
 UNIT_TEST := $(BUILD_DIR)/tests/test_cpu
+EXAMPLE ?= button
 
 # 每组源文件对应一个明确的功能模块。build/obj会镜像源目录结构，
 # 例如src/core/pic10f200.c生成build/obj/src/core/pic10f200.o。
@@ -46,7 +47,7 @@ SDL_OBJECTS := $(addprefix $(OBJECT_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(SIM_SOURCES:.c=.o) $(PLATFORM_SOURCES:.c=.o) \
 	$(CONFIG_SOURCES:.c=.o) $(SDL_FRONTEND_SOURCES:.c=.o))
 UNIT_TEST_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
-	test/unit/test_cpu.o $(CORE_SOURCES:.c=.o) $(SIM_SOURCES:.c=.o))
+	tests/unit/test_cpu.o $(CORE_SOURCES:.c=.o) $(SIM_SOURCES:.c=.o))
 HEX2C_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
 	tools/hex2c.o src/firmware/hex_loader.o)
 
@@ -57,7 +58,8 @@ DEPFILES := $(ALL_OBJECTS:.o=.d)
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
 
-.PHONY: all clean firmware run test unit-test sdl run-sdl tools
+.PHONY: all clean firmware example-firmware run test unit-test integration-test \
+	sdl run-sdl tools
 
 all: $(TARGET)
 
@@ -86,8 +88,8 @@ $(SDL_TARGET): $(SDL_OBJECTS)
 
 sdl: $(SDL_TARGET)
 
-run-sdl: sdl firmware
-	$(SDL_TARGET) circuits/blink.json
+run-sdl: sdl example-firmware
+	$(SDL_TARGET) examples/$(EXAMPLE)/diagram.json
 
 $(HEX2C_TARGET): $(HEX2C_OBJECTS)
 	@mkdir -p $(dir $@)
@@ -100,20 +102,25 @@ $(UNIT_TEST): $(UNIT_TEST_OBJECTS)
 	$(CC) $(CFLAGS) $^ -o $@
 
 firmware:
-	$(MAKE) -C test firmware
+	$(MAKE) -C examples all
 
-run: all firmware
-	$(TARGET) test/build/blink.hex --cycles 120000 \
-		--events test/button_events.txt
+example-firmware:
+	$(MAKE) -C examples/$(EXAMPLE) firmware
+
+run: all example-firmware
+	$(MAKE) -C examples/$(EXAMPLE) run \
+		PICEMU="$(abspath $(TARGET))"
 
 unit-test: $(UNIT_TEST)
 	$(UNIT_TEST)
 
-test: all unit-test
-	$(MAKE) -C test test PICEMU="$(abspath $(TARGET))"
+integration-test: all firmware
+	sh tests/integration/test_examples.sh "$(abspath $(TARGET))"
+
+test: unit-test integration-test
 
 clean:
 	rm -rf $(BUILD_DIR)
-	$(MAKE) -C test clean
+	$(MAKE) -C examples clean
 
 -include $(DEPFILES)

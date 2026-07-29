@@ -42,20 +42,32 @@ void sdl_part_pic10f200_render(SDL_Renderer *renderer,
     SDL_RenderFillRect(renderer, &pin_one_mark);
     sdl_draw_text(renderer,
                   part->x + (CHIP_WIDTH - sdl_text_width(title, 3)) / 2,
-                  part->y + 16, 3, title, label);
+                  part->y + 8, 3, title, label);
 
     for (i = 0; i < sizeof(PINS) / sizeof(PINS[0]); ++i) {
         const PinVisual *pin = &PINS[i];
+        /*
+         * 芯片内部划分为左右两列。PIC10F200最长的复用功能名称较长，
+         * 使用1倍字体才能保证两列之间留有空隙；窗口本身仍支持整体缩放。
+         */
+        const int label_scale = 1;
         int y = part->y + pin->offset_y;
         int body_x = pin->right ? part->x + CHIP_WIDTH : part->x;
         int outside_x = pin->right ? body_x + PIN_LENGTH :
                                      body_x - PIN_LENGTH;
-        int text_x = pin->right ? body_x + 8 :
-            body_x - 8 - sdl_text_width(pin->label, 1);
+        int text_x = pin->right
+            ? part->x + CHIP_WIDTH - 12 -
+                sdl_text_width(pin->label, label_scale)
+            : part->x + 12;
 
         SDL_SetRenderDrawColor(renderer, 195, 200, 205, 255);
         SDL_RenderDrawLine(renderer, body_x, y, outside_x, y);
-        sdl_draw_text(renderer, text_x, y - 4, 1, pin->label, label);
+        /*
+         * 文字放在芯片轮廓内、引脚中心线上方，外部导线因此不会穿过
+         * 字形，也不会和靠近芯片摆放的LED等器件重叠。
+         */
+        sdl_draw_text(renderer, text_x, y - 11, label_scale,
+                      pin->label, label);
     }
 }
 

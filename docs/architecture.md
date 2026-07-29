@@ -24,10 +24,13 @@ PicEmu/
 │   ├── circuit/           配置到运行时电路的装配
 │   ├── parts/             各器件独立可视模块
 │   └── common/            位图文字等公共绘图代码
-├── circuits/              JSON电路
+├── examples/
+│   ├── blink/             每个示例自带源码、diagram.json和构建目录
+│   ├── button/
+│   └── buzzer/
 ├── docs/
 │   └── ports/             非桌面平台的移植说明
-├── test/                  固件、事件与单元测试
+├── tests/                 单元测试与示例集成测试
 └── tools/                 HEX转C等开发工具
 ```
 
@@ -52,6 +55,6 @@ HEX加载器 / 嵌入式C数组
 2. 尽量复用 Baseline CPU 指令执行器；
 3. 在 SDL `parts` 增加对应封装外观；
 4. 在电路装配器注册新的 `type`；
-5. 增加该型号独立的HEX与单元测试。
+5. 增加该型号独立的示例固件与单元测试。
 
 目前设备查找器只接受 PIC10F200，预留结构不代表其他型号已经受支持。
