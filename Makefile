@@ -36,6 +36,8 @@ SDL_FRONTEND_SOURCES := \
 	frontends/sdl/app/main.c \
 	frontends/sdl/circuit/sdl_circuit.c \
 	frontends/sdl/common/sdl_text.c \
+	frontends/sdl/parts/part.c \
+	frontends/sdl/parts/registry.c \
 	frontends/sdl/parts/pic10.c \
 	frontends/sdl/parts/led.c \
 	frontends/sdl/parts/button.c \

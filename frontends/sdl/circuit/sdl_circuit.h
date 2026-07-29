@@ -4,7 +4,7 @@
 #include "picemu/sim/circuit_config.h"
 #include "picemu/firmware/hex_loader.h"
 #include "picemu/core/pic10_cpu.h"
-#include "parts/sdl_parts.h"
+#include "parts/part.h"
 #include "picemu/sim/board.h"
 
 #include <SDL2/SDL.h>
@@ -34,11 +34,11 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
                       const HexImage *image, char *error,
                       size_t error_size);
 void sdl_circuit_reset(SdlCircuit *circuit);
+void sdl_circuit_destroy(SdlCircuit *circuit);
 void sdl_circuit_step(SdlCircuit *circuit);
 void sdl_circuit_render(SDL_Renderer *renderer,
                         const SdlCircuit *circuit, bool running);
 void sdl_circuit_mouse(SdlCircuit *circuit, int x, int y, bool pressed);
-bool sdl_circuit_buzzer_active(const SdlCircuit *circuit);
 double sdl_circuit_buzzer_frequency(const SdlCircuit *circuit);
 
 #endif

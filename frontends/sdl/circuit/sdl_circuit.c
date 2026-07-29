@@ -1,4 +1,5 @@
 #include "circuit/sdl_circuit.h"
+#include "parts/registry.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -43,64 +44,8 @@ static bool part_pin(SdlPart *part, const char *name,
                      unsigned *pin, SDL_Point *point, bool *is_pic,
                      bool *is_signal)
 {
-    *is_pic = false;
-    *is_signal = true;
-    switch (part->type) {
-    case SDL_PART_PIC10:
-        *is_pic = true;
-        return sdl_part_pic10_pin(part, name, pin, point, is_signal);
-    case SDL_PART_LED:
-        return sdl_part_led_pin(part, name, pin, point);
-    case SDL_PART_BUTTON:
-        return sdl_part_button_pin(part, name, pin, point);
-    case SDL_PART_BUZZER:
-        return sdl_part_buzzer_pin(part, name, pin, point);
-    }
-    return false;
-}
-
-static SimDevice *part_device(SdlPart *part)
-{
-    switch (part->type) {
-    case SDL_PART_LED: return &part->device.led.base;
-    case SDL_PART_BUTTON: return &part->device.button.base;
-    case SDL_PART_BUZZER: return &part->device.buzzer.base;
-    default: return NULL;
-    }
-}
-
-static bool init_part(SdlPart *part, const CircuitPartConfig *config,
-                      char *error, size_t error_size)
-{
-    memset(part, 0, sizeof(*part));
-    snprintf(part->id, sizeof(part->id), "%s", config->id);
-    part->x = config->left;
-    part->y = config->top;
-    part->pic_device = pic_device_find(config->type);
-    if (part->pic_device != NULL) {
-        part->type = SDL_PART_PIC10;
-    } else if (strcmp(config->type, "led") == 0) {
-        uint8_t r = 255, g = 45, b = 35;
-        part->type = SDL_PART_LED;
-        if (strcmp(config->color, "green") == 0) {
-            r = 45; g = 255; b = 65;
-        } else if (strcmp(config->color, "blue") == 0) {
-            r = 45; g = 110; b = 255;
-        } else if (strcmp(config->color, "yellow") == 0) {
-            r = 255; g = 210; b = 35;
-        }
-        sim_led_init(&part->device.led, part->id, r, g, b, true);
-    } else if (strcmp(config->type, "pushbutton") == 0) {
-        part->type = SDL_PART_BUTTON;
-        sim_button_init(&part->device.button, part->id, config->active_low);
-    } else if (strcmp(config->type, "buzzer") == 0) {
-        part->type = SDL_PART_BUZZER;
-        sim_buzzer_init(&part->device.buzzer, part->id);
-    } else {
-        snprintf(error, error_size, "不支持的器件类型：%s", config->type);
-        return false;
-    }
-    return true;
+    *is_pic = part->is_mcu;
+    return sdl_part_find_pin(part, name, pin, point, is_signal);
 }
 
 bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
@@ -115,22 +60,27 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
     circuit->part_count = config->part_count;
 
     for (i = 0; i < config->part_count; ++i) {
-        if (!init_part(&circuit->parts[i], &config->parts[i],
-                       error, error_size)) return false;
-        if (circuit->parts[i].type == SDL_PART_PIC10) {
+        if (!sdl_part_create(&circuit->parts[i], &config->parts[i],
+                             error, error_size)) {
+            sdl_circuit_destroy(circuit);
+            return false;
+        }
+        if (circuit->parts[i].is_mcu) {
             ++mcu_count;
-            device = circuit->parts[i].pic_device;
+            device = circuit->parts[i].view_state;
         }
         if (i > 0 && find_part(circuit, circuit->parts[i].id, NULL) !=
                      &circuit->parts[i]) {
             snprintf(error, error_size, "重复的器件ID：%s",
                      circuit->parts[i].id);
+            sdl_circuit_destroy(circuit);
             return false;
         }
     }
     if (mcu_count != 1) {
         snprintf(error, error_size,
                  "当前电路必须包含一个pic10f200或pic10f202主控");
+        sdl_circuit_destroy(circuit);
         return false;
     }
     pic10_init(&circuit->cpu, image, device);
@@ -158,6 +108,7 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
                       &pic_b, &signal_b)) {
             snprintf(error, error_size, "无效连接：%s -> %s",
                      source->from, source->to);
+            sdl_circuit_destroy(circuit);
             return false;
         }
         if (!signal_a || !signal_b) {
@@ -169,14 +120,15 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
                 !(pic_a ? sim_board_connect_pic(&circuit->board,
                                                 wire->net, pin_a)
                          : sim_board_connect_device(&circuit->board,
-                             wire->net, part_device(part_a), pin_a)) ||
+                             wire->net, part_a->device, pin_a)) ||
                 !(pic_b ? sim_board_connect_pic(&circuit->board,
                                                 wire->net, pin_b)
                          : sim_board_connect_device(&circuit->board,
-                             wire->net, part_device(part_b), pin_b))) {
+                             wire->net, part_b->device, pin_b))) {
                 snprintf(error, error_size,
                          "连接必须由一个主控引脚连接一个外设引脚：%s -> %s",
                          source->from, source->to);
+                sdl_circuit_destroy(circuit);
                 return false;
             }
         }
@@ -195,16 +147,6 @@ void sdl_circuit_reset(SdlCircuit *circuit)
 void sdl_circuit_step(SdlCircuit *circuit)
 {
     sim_board_step(&circuit->board);
-}
-
-static void render_part(SDL_Renderer *renderer, const SdlPart *part)
-{
-    switch (part->type) {
-    case SDL_PART_PIC10: sdl_part_pic10_render(renderer, part); break;
-    case SDL_PART_LED: sdl_part_led_render(renderer, part); break;
-    case SDL_PART_BUTTON: sdl_part_button_render(renderer, part); break;
-    case SDL_PART_BUZZER: sdl_part_buzzer_render(renderer, part); break;
-    }
 }
 
 void sdl_circuit_render(SDL_Renderer *renderer,
@@ -235,7 +177,7 @@ void sdl_circuit_render(SDL_Renderer *renderer,
         SDL_RenderDrawLine(renderer, (pa.x + pb.x) / 2, pb.y, pb.x, pb.y);
     }
     for (i = 0; i < circuit->part_count; ++i) {
-        render_part(renderer, &circuit->parts[i]);
+        sdl_part_render(renderer, &circuit->parts[i]);
     }
     SDL_RenderPresent(renderer);
 }
@@ -244,37 +186,27 @@ void sdl_circuit_mouse(SdlCircuit *circuit, int x, int y, bool pressed)
 {
     unsigned i;
     for (i = 0; i < circuit->part_count; ++i) {
-        SdlPart *part = &circuit->parts[i];
-        if (part->type == SDL_PART_BUTTON &&
-            (!pressed || sdl_part_button_hit(part, x, y))) {
-            sim_button_set_pressed(&part->device.button, pressed);
-        }
+        sdl_part_mouse(&circuit->parts[i], x, y, pressed);
     }
     sim_board_resolve(&circuit->board);
-}
-
-bool sdl_circuit_buzzer_active(const SdlCircuit *circuit)
-{
-    unsigned i;
-    for (i = 0; i < circuit->part_count; ++i) {
-        if (circuit->parts[i].type == SDL_PART_BUZZER &&
-            circuit->parts[i].device.buzzer.active) return true;
-    }
-    return false;
 }
 
 double sdl_circuit_buzzer_frequency(const SdlCircuit *circuit)
 {
     unsigned i;
     for (i = 0; i < circuit->part_count; ++i) {
-        if (circuit->parts[i].type == SDL_PART_BUZZER) {
-            const SimBuzzer *buzzer = &circuit->parts[i].device.buzzer;
-            if (buzzer->frequency_hz > 0.0) return buzzer->frequency_hz;
-            /*
-             * 兼容旧的有源蜂鸣器示例：引脚保持高电平时使用固定2kHz。
-             */
-            if (buzzer->active) return 2000.0;
-        }
+        double frequency = sdl_part_audio_frequency(&circuit->parts[i]);
+        if (frequency > 0.0) return frequency;
     }
     return 0.0;
+}
+
+void sdl_circuit_destroy(SdlCircuit *circuit)
+{
+    unsigned i;
+    if (circuit == NULL) return;
+    for (i = 0; i < circuit->part_count; ++i) {
+        sdl_part_destroy(&circuit->parts[i]);
+    }
+    circuit->part_count = 0;
 }

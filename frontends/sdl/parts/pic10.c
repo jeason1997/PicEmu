@@ -1,4 +1,4 @@
-#include "parts/sdl_parts.h"
+#include "parts/pic10.h"
 #include "common/sdl_text.h"
 
 #include <string.h>
@@ -24,14 +24,14 @@ static const PinVisual PINS[] = {
     {"GP2", "4 GP2/T0CKI/FOSC4", 4, 2, true, true, 170}
 };
 
-void sdl_part_pic10_render(SDL_Renderer *renderer,
-                              const SdlPart *part)
+static void pic10_render(SDL_Renderer *renderer, const SdlPart *part)
 {
     SDL_Rect body = {part->x, part->y, CHIP_WIDTH, CHIP_HEIGHT};
     SDL_Rect pin_one_mark = {part->x + 12, part->y + 12, 10, 10};
     SDL_Color label = {225, 228, 232, 255};
     unsigned i;
-    const char *title = part->pic_device->name;
+    const PicDeviceDescription *device = part->view_state;
+    const char *title = device->name;
 
     SDL_SetRenderDrawColor(renderer, 42, 47, 54, 255);
     SDL_RenderFillRect(renderer, &body);
@@ -71,7 +71,7 @@ void sdl_part_pic10_render(SDL_Renderer *renderer,
     }
 }
 
-bool sdl_part_pic10_pin(const SdlPart *part, const char *name,
+static bool pic10_find_pin(const SdlPart *part, const char *name,
                            unsigned *gpio, SDL_Point *point,
                            bool *is_signal)
 {
@@ -88,4 +88,19 @@ bool sdl_part_pic10_pin(const SdlPart *part, const char *name,
         }
     }
     return false;
+}
+
+static const SdlPartOps PIC10_OPS = {
+    .render = pic10_render,
+    .find_pin = pic10_find_pin
+};
+
+bool sdl_part_pic10_init(SdlPart *part,
+                         const PicDeviceDescription *device)
+{
+    if (device == NULL) return false;
+    part->is_mcu = true;
+    part->view_state = (void *)device;
+    part->ops = &PIC10_OPS;
+    return true;
 }

@@ -75,3 +75,20 @@ include/picemu/sim/devices/
 
 设备实现只包含自己的头文件。使用者也应只包含实际需要的设备头文件；
 新增屏幕或电机等器件时，不需要修改基础 `device.h`。
+
+SDL 可视化器件采用相同原则：
+
+```text
+frontends/sdl/parts/
+├── part.h / part.c          通用视图接口与分派
+├── registry.h / registry.c JSON类型到初始化函数的注册表
+├── led.h / led.c
+├── button.h / button.c
+├── buzzer.h / buzzer.c
+└── pic10.h / pic10.c
+```
+
+`SdlPart` 只保存通用操作表、模型指针和视图状态，不再包含具体器件枚举或
+设备 `union`。绘制、引脚查询、鼠标输入和音频输出均通过 `SdlPartOps`
+分派。新增 SDL 器件无需修改 `part.h` 或电路装配器，只需添加独立模块并
+在 `registry.c` 的内建设备表中登记一次。

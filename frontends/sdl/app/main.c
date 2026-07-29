@@ -189,6 +189,7 @@ int main(int argc, char **argv)
     }
 
     if (audio_device != 0) SDL_CloseAudioDevice(audio_device);
+    sdl_circuit_destroy(&circuit);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
