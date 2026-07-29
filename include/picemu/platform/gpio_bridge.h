@@ -1,7 +1,7 @@
 #ifndef PIC_PLATFORM_H
 #define PIC_PLATFORM_H
 
-#include "picemu/core/pic10f200.h"
+#include "picemu/core/pic10_cpu.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -25,14 +25,14 @@ typedef struct {
 } PicPlatformOps;
 
 typedef struct {
-    Pic10F200 *cpu;
+    Pic10Cpu *cpu;
     const PicPlatformOps *ops;
     uint8_t last_tris;
     bool initialized;
 } PicHardwareBridge;
 
 void pic_hardware_bridge_init(PicHardwareBridge *bridge,
-                              Pic10F200 *cpu,
+                              Pic10Cpu *cpu,
                               const PicPlatformOps *ops);
 
 /*

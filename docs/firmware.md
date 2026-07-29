@@ -47,4 +47,4 @@ make tools
 ```
 
 生成文件提供 `const HexImage blink_image`，可以直接传给
-`pic10f200_init()`。
+`pic10_init()`，并同时传入目标型号的 `PicDeviceDescription`。

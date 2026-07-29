@@ -11,10 +11,10 @@ UNIT_TEST := $(BUILD_DIR)/tests/test_cpu
 EXAMPLE ?= button
 
 # 每组源文件对应一个明确的功能模块。build/obj会镜像源目录结构，
-# 例如src/core/pic10f200.c生成build/obj/src/core/pic10f200.o。
+# 例如src/core/pic10_cpu.c生成build/obj/src/core/pic10_cpu.o。
 CORE_SOURCES := \
 	src/core/pic_device.c \
-	src/core/pic10f200.c \
+	src/core/pic10_cpu.c \
 	src/core/disassembler.c \
 	src/firmware/hex_loader.c
 
@@ -36,7 +36,7 @@ SDL_FRONTEND_SOURCES := \
 	frontends/sdl/app/main.c \
 	frontends/sdl/circuit/sdl_circuit.c \
 	frontends/sdl/common/sdl_text.c \
-	frontends/sdl/parts/pic10f200.c \
+	frontends/sdl/parts/pic10.c \
 	frontends/sdl/parts/led.c \
 	frontends/sdl/parts/button.c \
 	frontends/sdl/parts/buzzer.c

@@ -3,7 +3,7 @@
 #include <string.h>
 
 void pic_hardware_bridge_init(PicHardwareBridge *bridge,
-                              Pic10F200 *cpu,
+                              Pic10Cpu *cpu,
                               const PicPlatformOps *ops)
 {
     memset(bridge, 0, sizeof(*bridge));
@@ -14,7 +14,7 @@ void pic_hardware_bridge_init(PicHardwareBridge *bridge,
 
 void pic_hardware_bridge_sync(PicHardwareBridge *bridge)
 {
-    Pic10F200 *cpu;
+    Pic10Cpu *cpu;
     unsigned pin;
 
     if (bridge == NULL || bridge->cpu == NULL || bridge->ops == NULL) {
@@ -46,7 +46,7 @@ void pic_hardware_bridge_sync(PicHardwareBridge *bridge)
             }
         } else if (bridge->ops->read_pin != NULL) {
             bool high = bridge->ops->read_pin(bridge->ops->context, pin);
-            pic10f200_drive_pin(cpu, pin, true, high);
+            pic10_drive_pin(cpu, pin, true, high);
         }
     }
 

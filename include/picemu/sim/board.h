@@ -1,7 +1,7 @@
 #ifndef SIM_BOARD_H
 #define SIM_BOARD_H
 
-#include "picemu/core/pic10f200.h"
+#include "picemu/core/pic10_cpu.h"
 #include "picemu/sim/device.h"
 
 #include <stdbool.h>
@@ -34,14 +34,14 @@ typedef struct {
 } SimNet;
 
 typedef struct {
-    Pic10F200 *cpu;
+    Pic10Cpu *cpu;
     SimNet nets[SIM_BOARD_MAX_NETS];
     unsigned net_count;
     SimDevice *devices[SIM_BOARD_MAX_DEVICES];
     unsigned device_count;
 } SimBoard;
 
-void sim_board_init(SimBoard *board, Pic10F200 *cpu);
+void sim_board_init(SimBoard *board, Pic10Cpu *cpu);
 int sim_board_add_net(SimBoard *board, const char *name);
 bool sim_board_connect_pic(SimBoard *board, int net, unsigned pic_pin);
 bool sim_board_connect_device(SimBoard *board, int net,

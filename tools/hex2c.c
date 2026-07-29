@@ -39,10 +39,10 @@ int main(int argc, char **argv)
     printf("#include \"picemu/firmware/hex_loader.h\"\n\n");
     printf("const HexImage %s_image = {\n", symbol);
     printf("    .program = {\n");
-    for (i = 0; i < PIC10F200_PROGRAM_WORDS; ++i) {
+    for (i = 0; i < PIC10_MAX_PROGRAM_WORDS; ++i) {
         printf("        0x%03X%s%s", image.program[i],
-               i + 1 == PIC10F200_PROGRAM_WORDS ? "" : ",",
-               (i % 4 == 3 || i + 1 == PIC10F200_PROGRAM_WORDS)
+               i + 1 == PIC10_MAX_PROGRAM_WORDS ? "" : ",",
+               (i % 4 == 3 || i + 1 == PIC10_MAX_PROGRAM_WORDS)
                    ? "\n" : " ");
     }
     printf("    },\n");

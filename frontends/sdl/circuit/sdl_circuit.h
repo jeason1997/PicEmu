@@ -3,7 +3,7 @@
 
 #include "picemu/sim/circuit_config.h"
 #include "picemu/firmware/hex_loader.h"
-#include "picemu/core/pic10f200.h"
+#include "picemu/core/pic10_cpu.h"
 #include "parts/sdl_parts.h"
 #include "picemu/sim/board.h"
 
@@ -22,7 +22,7 @@ typedef struct {
 } SdlWire;
 
 typedef struct {
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
     SimBoard board;
     SdlPart parts[CIRCUIT_MAX_PARTS];
     unsigned part_count;

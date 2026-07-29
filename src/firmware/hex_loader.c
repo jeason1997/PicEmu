@@ -54,8 +54,8 @@ bool hex_load_file(const char *path, HexImage *image,
     char line[HEX_LINE_CAPACITY];
     unsigned line_number = 0;
     uint32_t address_base = 0;
-    uint8_t program_bytes[PIC10F200_PROGRAM_WORDS * 2] = {0};
-    bool byte_present[PIC10F200_PROGRAM_WORDS * 2] = {false};
+    uint8_t program_bytes[PIC10_MAX_PROGRAM_WORDS * 2] = {0};
+    bool byte_present[PIC10_MAX_PROGRAM_WORDS * 2] = {false};
     uint8_t config_bytes[2] = {0};
     bool config_byte_present[2] = {false};
     bool saw_eof = false;
@@ -173,7 +173,7 @@ bool hex_load_file(const char *path, HexImage *image,
         return false;
     }
 
-    for (size_t word = 0; word < PIC10F200_PROGRAM_WORDS; ++word) {
+    for (size_t word = 0; word < PIC10_MAX_PROGRAM_WORDS; ++word) {
         size_t low = word * 2;
         size_t high = low + 1;
 

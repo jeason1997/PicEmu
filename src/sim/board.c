@@ -16,7 +16,7 @@ static SimLevel combine(SimLevel current, SimLevel driver)
     return current == driver ? current : SIM_LEVEL_CONFLICT;
 }
 
-static SimLevel pic_drive(const Pic10F200 *cpu, unsigned pin)
+static SimLevel pic_drive(const Pic10Cpu *cpu, unsigned pin)
 {
     if (pin >= cpu->device->gpio_count ||
         (cpu->device->pins[pin].capabilities & PIC_PIN_CAP_OUTPUT) == 0 ||
@@ -27,7 +27,7 @@ static SimLevel pic_drive(const Pic10F200 *cpu, unsigned pin)
         ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW;
 }
 
-void sim_board_init(SimBoard *board, Pic10F200 *cpu)
+void sim_board_init(SimBoard *board, Pic10Cpu *cpu)
 {
     memset(board, 0, sizeof(*board));
     board->cpu = cpu;
@@ -122,7 +122,7 @@ void sim_board_resolve(SimBoard *board)
             if (endpoint->type == SIM_ENDPOINT_PIC_PIN) {
                 bool driven = resolved != SIM_LEVEL_Z;
                 bool high = resolved == SIM_LEVEL_HIGH;
-                pic10f200_drive_pin(board->cpu, endpoint->target.pic_pin,
+                pic10_drive_pin(board->cpu, endpoint->target.pic_pin,
                                     driven, high);
             } else {
                 SimDevice *device = endpoint->target.device.device;
@@ -143,7 +143,7 @@ void sim_board_reset(SimBoard *board)
 {
     unsigned i;
 
-    pic10f200_reset(board->cpu, PIC10_RESET_MCLR);
+    pic10_reset(board->cpu, PIC10_RESET_MCLR);
     for (i = 0; i < board->device_count; ++i) {
         SimDevice *device = board->devices[i];
         if (device->ops != NULL && device->ops->reset != NULL) {
@@ -159,7 +159,7 @@ Pic10StepResult sim_board_step(SimBoard *board)
     unsigned i;
 
     sim_board_resolve(board);
-    result = pic10f200_step(board->cpu);
+    result = pic10_step(board->cpu);
     /*
      * 先推进外设时间，再解析本条指令造成的引脚边沿。这样蜂鸣器等测量
      * 边沿间隔的设备会把当前指令周期计入刚结束的电平持续时间。

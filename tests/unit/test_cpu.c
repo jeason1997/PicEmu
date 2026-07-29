@@ -1,5 +1,5 @@
 #include "picemu/core/disassembler.h"
-#include "picemu/core/pic10f200.h"
+#include "picemu/core/pic10_cpu.h"
 #include "picemu/sim/board.h"
 #include "picemu/sim/device.h"
 
@@ -24,7 +24,7 @@ static HexImage blank_image(bool watchdog_enabled)
     unsigned i;
 
     memset(&image, 0, sizeof(image));
-    for (i = 0; i < PIC10F200_PROGRAM_WORDS; ++i) {
+    for (i = 0; i < PIC10_MAX_PROGRAM_WORDS; ++i) {
         image.program[i] = 0x000; /* NOP */
     }
     image.config_present = true;
@@ -35,14 +35,14 @@ static HexImage blank_image(bool watchdog_enabled)
 static void test_addwf_flags(void)
 {
     HexImage image = blank_image(false);
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
 
     /* ADDWF 0x10,F */
     image.program[0] = 0x1C0u | 0x20u | 0x10u;
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
     cpu.w = 0x01;
     cpu.ram[0x10] = 0xFF;
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
 
     CHECK(cpu.ram[0x10] == 0x00);
     CHECK((cpu.ram[PIC10_STATUS] & 0x01u) != 0); /* C */
@@ -53,14 +53,14 @@ static void test_addwf_flags(void)
 static void test_subwf_borrow(void)
 {
     HexImage image = blank_image(false);
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
 
     /* SUBWF 0x10,W：0x01 - 0x02 = 0xFF，产生借位时C清零。 */
     image.program[0] = 0x080u | 0x10u;
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
     cpu.w = 0x02;
     cpu.ram[0x10] = 0x01;
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
 
     CHECK(cpu.w == 0xFF);
     CHECK((cpu.ram[PIC10_STATUS] & 0x01u) == 0);
@@ -70,88 +70,118 @@ static void test_subwf_borrow(void)
 static void test_skip_cycles(void)
 {
     HexImage image = blank_image(false);
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
     Pic10StepResult result;
 
     /* BTFSC 0x10,0：bit为0时跳过下一条。 */
     image.program[0] = 0x600u | 0x10u;
     image.program[1] = 0xCAA; /* MOVLW 0xAA，不应执行 */
     image.program[2] = 0xC55; /* MOVLW 0x55 */
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
 
-    result = pic10f200_step(&cpu);
+    result = pic10_step(&cpu);
     CHECK(result.instruction_cycles == 2);
     CHECK(cpu.pc == 2);
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
     CHECK(cpu.w == 0x55);
 }
 
 static void test_call_retlw(void)
 {
     HexImage image = blank_image(false);
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
 
     image.program[0] = 0x905; /* CALL 0x05 */
     image.program[1] = 0xC42; /* 返回后执行 */
     image.program[5] = 0x899; /* RETLW 0x99 */
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
 
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
     CHECK(cpu.pc == 5);
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
     CHECK(cpu.pc == 1);
     CHECK(cpu.w == 0x99);
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
     CHECK(cpu.w == 0x42);
 }
 
 static void test_indirect_addressing(void)
 {
     HexImage image = blank_image(false);
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
 
     /* MOVWF INDF，FSR指向0x10。 */
     image.program[0] = 0x020;
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
     cpu.ram[PIC10_FSR] = 0x10;
     cpu.w = 0xA5;
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
 
     CHECK(cpu.ram[0x10] == 0xA5);
-    CHECK(pic10f200_read_register(&cpu, PIC10_INDF) == 0xA5);
+    CHECK(pic10_read_register(&cpu, PIC10_INDF) == 0xA5);
+}
+
+static void test_pic10f202_memory_map(void)
+{
+    HexImage image = blank_image(false);
+    Pic10Cpu cpu;
+
+    /* PIC10F202的GOTO可以使用第9个目标位，跳到0x1AA。 */
+    image.program[0] = 0xA00u | 0x1AAu;
+    image.program[0x1AA] = 0xC55u; /* MOVLW 0x55 */
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F202);
+
+    pic10_step(&cpu);
+    CHECK(cpu.pc == 0x1AA);
+    pic10_step(&cpu);
+    CHECK(cpu.w == 0x55);
+
+    /* 10F202从0x08开始有24字节GPR；10F200的0x08未实现。 */
+    image.program[0] = 0x020u; /* MOVWF INDF */
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F202);
+    cpu.ram[PIC10_FSR] = 0x08;
+    cpu.w = 0xA5;
+    pic10_step(&cpu);
+    CHECK(pic10_read_register(&cpu, 0x08) == 0xA5);
+
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
+    cpu.ram[PIC10_FSR] = 0x08;
+    cpu.w = 0xA5;
+    pic10_step(&cpu);
+    CHECK(pic10_read_register(&cpu, 0x08) == 0x00);
 }
 
 static void test_timer0_write_inhibit(void)
 {
     HexImage image = blank_image(false);
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
 
     image.program[0] = 0x020 | PIC10_TMR0; /* MOVWF TMR0 */
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
     cpu.option = 0x08; /* 内部时钟，预分频器给WDT，TMR0每周期+1 */
     cpu.w = 10;
 
-    pic10f200_step(&cpu); /* 写入周期 */
-    pic10f200_step(&cpu); /* 抑制1 */
-    pic10f200_step(&cpu); /* 抑制2 */
+    pic10_step(&cpu); /* 写入周期 */
+    pic10_step(&cpu); /* 抑制1 */
+    pic10_step(&cpu); /* 抑制2 */
     CHECK(cpu.ram[PIC10_TMR0] == 10);
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
     CHECK(cpu.ram[PIC10_TMR0] == 11);
 }
 
 static void test_watchdog_wakes_sleep(void)
 {
     HexImage image = blank_image(true);
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
 
     image.program[0] = 0x003; /* SLEEP */
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
     cpu.watchdog_base_period = 2; /* 测试中缩短标称18ms超时 */
     cpu.option = 0x00;            /* PSA给TMR0，WDT为1:1 */
 
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
     CHECK(cpu.sleeping);
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
     CHECK(!cpu.sleeping);
     CHECK((cpu.ram[PIC10_STATUS] & (1u << PIC10_STATUS_TO)) == 0);
     CHECK((cpu.ram[PIC10_STATUS] & (1u << PIC10_STATUS_PD)) == 0);
@@ -160,32 +190,32 @@ static void test_watchdog_wakes_sleep(void)
 static void test_external_t0cki_and_pin_wakeup(void)
 {
     HexImage image = blank_image(false);
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
 
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
     cpu.option = 0x68; /* T0CS=1、上升沿、PSA=1、弱上拉关闭 */
     cpu.tris_gpio = 0x0F;
-    pic10f200_drive_pin(&cpu, 2, true, false);
-    pic10f200_drive_pin(&cpu, 2, true, true);
+    pic10_drive_pin(&cpu, 2, true, false);
+    pic10_drive_pin(&cpu, 2, true, true);
     CHECK(cpu.ram[PIC10_TMR0] == 1);
 
     cpu.sleeping = true;
     cpu.option = 0x40; /* GPWU=0，允许引脚变化唤醒 */
-    pic10f200_drive_pin(&cpu, 3, true, false);
-    pic10f200_drive_pin(&cpu, 3, true, true);
+    pic10_drive_pin(&cpu, 3, true, false);
+    pic10_drive_pin(&cpu, 3, true, true);
     CHECK(!cpu.sleeping);
 }
 
 static void test_status_read_only_bits(void)
 {
     HexImage image = blank_image(false);
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
 
     /* MOVWF STATUS不应清除只读的TO和PD。 */
     image.program[0] = 0x020u | PIC10_STATUS;
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
     cpu.w = 0;
-    pic10f200_step(&cpu);
+    pic10_step(&cpu);
     CHECK((cpu.ram[PIC10_STATUS] & 0x18u) == 0x18u);
 }
 
@@ -202,7 +232,7 @@ static void test_disassembler(void)
 static void test_extensible_board_devices(void)
 {
     HexImage image = blank_image(false);
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
     SimBoard board;
     SimLed led;
     SimButton button;
@@ -210,7 +240,7 @@ static void test_extensible_board_devices(void)
     int button_net;
 
     image.program[0] = 0x506; /* BSF GPIO,0 */
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
     cpu.tris_gpio = 0x0E;     /* GP0输出，GP1~GP3输入 */
 
     sim_board_init(&board, &cpu);
@@ -225,11 +255,11 @@ static void test_extensible_board_devices(void)
 
     sim_board_step(&board);
     CHECK(led.lit);
-    CHECK((pic10f200_gpio_value(&cpu) & (1u << 3)) != 0);
+    CHECK((pic10_gpio_value(&cpu) & (1u << 3)) != 0);
 
     sim_button_set_pressed(&button, true);
     sim_board_resolve(&board);
-    CHECK((pic10f200_gpio_value(&cpu) & (1u << 3)) == 0);
+    CHECK((pic10_gpio_value(&cpu) & (1u << 3)) == 0);
 }
 
 static void test_passive_buzzer_frequency(void)
@@ -253,6 +283,7 @@ int main(void)
     test_skip_cycles();
     test_call_retlw();
     test_indirect_addressing();
+    test_pic10f202_memory_map();
     test_timer0_write_inhibit();
     test_watchdog_wakes_sleep();
     test_external_t0cki_and_pin_wakeup();

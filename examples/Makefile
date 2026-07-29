@@ -1,4 +1,4 @@
-EXAMPLES := blink button buzzer fur_elise
+EXAMPLES := blink button buzzer playmusic
 
 .PHONY: all clean $(EXAMPLES)
 

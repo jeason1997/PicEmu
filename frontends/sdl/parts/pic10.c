@@ -24,14 +24,14 @@ static const PinVisual PINS[] = {
     {"GP2", "4 GP2/T0CKI/FOSC4", 4, 2, true, true, 170}
 };
 
-void sdl_part_pic10f200_render(SDL_Renderer *renderer,
+void sdl_part_pic10_render(SDL_Renderer *renderer,
                               const SdlPart *part)
 {
     SDL_Rect body = {part->x, part->y, CHIP_WIDTH, CHIP_HEIGHT};
     SDL_Rect pin_one_mark = {part->x + 12, part->y + 12, 10, 10};
     SDL_Color label = {225, 228, 232, 255};
     unsigned i;
-    const char *title = "PIC10F200";
+    const char *title = part->pic_device->name;
 
     SDL_SetRenderDrawColor(renderer, 42, 47, 54, 255);
     SDL_RenderFillRect(renderer, &body);
@@ -47,7 +47,7 @@ void sdl_part_pic10f200_render(SDL_Renderer *renderer,
     for (i = 0; i < sizeof(PINS) / sizeof(PINS[0]); ++i) {
         const PinVisual *pin = &PINS[i];
         /*
-         * 芯片内部划分为左右两列。PIC10F200最长的复用功能名称较长，
+         * 芯片内部划分为左右两列。PIC10F20x最长的复用功能名称较长，
          * 使用1倍字体才能保证两列之间留有空隙；窗口本身仍支持整体缩放。
          */
         const int label_scale = 1;
@@ -71,7 +71,7 @@ void sdl_part_pic10f200_render(SDL_Renderer *renderer,
     }
 }
 
-bool sdl_part_pic10f200_pin(const SdlPart *part, const char *name,
+bool sdl_part_pic10_pin(const SdlPart *part, const char *name,
                            unsigned *gpio, SDL_Point *point,
                            bool *is_signal)
 {

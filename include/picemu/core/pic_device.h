@@ -40,8 +40,9 @@ typedef struct {
 } PicDeviceDescription;
 
 extern const PicDeviceDescription PIC_DEVICE_PIC10F200;
+extern const PicDeviceDescription PIC_DEVICE_PIC10F202;
 
-/* 后续加入PIC10F202/204/206时，只需注册新的描述和对应核心实现。 */
+/* 按型号名称查找当前已经实现的设备。 */
 const PicDeviceDescription *pic_device_find(const char *name);
 
 #endif

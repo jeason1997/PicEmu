@@ -1,6 +1,6 @@
 # PicEmu
 
-PicEmu 是一个使用 C11 编写的 PIC10F200 教学模拟器，可在 Linux 下通过
+PicEmu 是一个使用 C11 编写的 PIC10F200/PIC10F202 教学模拟器，可在Linux下通过
 GCC 编译，直接执行 MPLAB XC8 生成的 Intel HEX 固件。
 
 项目包含两个入口：
@@ -24,7 +24,7 @@ make run-sdl
 # 选择其他示例
 make run-sdl EXAMPLE=blink
 make run-sdl EXAMPLE=buzzer
-make run-sdl EXAMPLE=fur_elise
+make run-sdl EXAMPLE=playmusic
 ```
 
 手动运行：
@@ -48,6 +48,5 @@ make run-sdl EXAMPLE=fur_elise
 
 ## 当前状态
 
-目前只实现 PIC10F200。芯片描述、CPU核心、仿真网络、可视器件和平台桥接
-彼此分离，已经为后续 PIC10F202、PIC10F204、PIC10F206 等型号预留扩展
-位置，但这些型号当前不能运行。
+目前实现 PIC10F200 和 PIC10F202。两者共享Baseline CPU核心，由设备描述
+决定程序空间、RAM映射和PC宽度。PIC10F204/206的比较器尚未实现。

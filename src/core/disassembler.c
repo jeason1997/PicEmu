@@ -1,5 +1,5 @@
 #include "picemu/core/disassembler.h"
-#include "picemu/core/pic10f200.h"
+#include "picemu/core/pic10_cpu.h"
 
 #include <stdio.h>
 

@@ -46,9 +46,9 @@ static bool part_pin(SdlPart *part, const char *name,
     *is_pic = false;
     *is_signal = true;
     switch (part->type) {
-    case SDL_PART_PIC10F200:
+    case SDL_PART_PIC10:
         *is_pic = true;
-        return sdl_part_pic10f200_pin(part, name, pin, point, is_signal);
+        return sdl_part_pic10_pin(part, name, pin, point, is_signal);
     case SDL_PART_LED:
         return sdl_part_led_pin(part, name, pin, point);
     case SDL_PART_BUTTON:
@@ -76,8 +76,9 @@ static bool init_part(SdlPart *part, const CircuitPartConfig *config,
     snprintf(part->id, sizeof(part->id), "%s", config->id);
     part->x = config->left;
     part->y = config->top;
-    if (strcmp(config->type, "pic10f200") == 0) {
-        part->type = SDL_PART_PIC10F200;
+    part->pic_device = pic_device_find(config->type);
+    if (part->pic_device != NULL) {
+        part->type = SDL_PART_PIC10;
     } else if (strcmp(config->type, "led") == 0) {
         uint8_t r = 255, g = 45, b = 35;
         part->type = SDL_PART_LED;
@@ -108,16 +109,18 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
 {
     unsigned i;
     unsigned mcu_count = 0;
+    const PicDeviceDescription *device = NULL;
 
     memset(circuit, 0, sizeof(*circuit));
-    pic10f200_init(&circuit->cpu, image);
-    sim_board_init(&circuit->board, &circuit->cpu);
     circuit->part_count = config->part_count;
 
     for (i = 0; i < config->part_count; ++i) {
         if (!init_part(&circuit->parts[i], &config->parts[i],
                        error, error_size)) return false;
-        if (circuit->parts[i].type == SDL_PART_PIC10F200) ++mcu_count;
+        if (circuit->parts[i].type == SDL_PART_PIC10) {
+            ++mcu_count;
+            device = circuit->parts[i].pic_device;
+        }
         if (i > 0 && find_part(circuit, circuit->parts[i].id, NULL) !=
                      &circuit->parts[i]) {
             snprintf(error, error_size, "重复的器件ID：%s",
@@ -126,9 +129,12 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
         }
     }
     if (mcu_count != 1) {
-        snprintf(error, error_size, "当前电路必须包含一个pic10f200主控");
+        snprintf(error, error_size,
+                 "当前电路必须包含一个pic10f200或pic10f202主控");
         return false;
     }
+    pic10_init(&circuit->cpu, image, device);
+    sim_board_init(&circuit->board, &circuit->cpu);
 
     for (i = 0; i < config->connection_count; ++i) {
         const CircuitConnectionConfig *source = &config->connections[i];
@@ -194,7 +200,7 @@ void sdl_circuit_step(SdlCircuit *circuit)
 static void render_part(SDL_Renderer *renderer, const SdlPart *part)
 {
     switch (part->type) {
-    case SDL_PART_PIC10F200: sdl_part_pic10f200_render(renderer, part); break;
+    case SDL_PART_PIC10: sdl_part_pic10_render(renderer, part); break;
     case SDL_PART_LED: sdl_part_led_render(renderer, part); break;
     case SDL_PART_BUTTON: sdl_part_button_render(renderer, part); break;
     case SDL_PART_BUZZER: sdl_part_buzzer_render(renderer, part); break;

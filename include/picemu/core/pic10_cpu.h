@@ -1,5 +1,5 @@
-#ifndef PIC10F200_H
-#define PIC10F200_H
+#ifndef PIC10_CPU_H
+#define PIC10_CPU_H
 
 #include "picemu/firmware/hex_loader.h"
 #include "picemu/core/pic_device.h"
@@ -24,8 +24,7 @@ enum {
     PIC10_STATUS_DC = 1,
     PIC10_STATUS_Z  = 2,
     PIC10_STATUS_PD = 3,
-    PIC10_STATUS_TO = 4,
-    PIC10_STATUS_PA0 = 5
+    PIC10_STATUS_TO = 4
 };
 
 typedef enum {
@@ -36,11 +35,12 @@ typedef enum {
 
 typedef struct {
     const PicDeviceDescription *device;
-    uint16_t program[PIC10F200_PROGRAM_WORDS];
+    uint16_t program[PIC10_MAX_PROGRAM_WORDS];
 
     /*
      * 为便于学习，这里保留完整的 32 字节地址空间。
-     * 0x00~0x06 是 SFR；PIC10F200 的通用 RAM 位于 0x10~0x1F。
+     * 保留完整32字节寄存器地址空间。具体GPR起点由型号决定：
+     * PIC10F200为0x10，PIC10F202为0x08。
      */
     uint8_t ram[32];
 
@@ -68,7 +68,7 @@ typedef struct {
     bool watchdog_enabled;
     Pic10ResetReason last_reset;
     const char *stop_reason;
-} Pic10F200;
+} Pic10Cpu;
 
 typedef struct {
     uint16_t executed_pc;
@@ -81,23 +81,24 @@ typedef struct {
     unsigned instruction_cycles;
 } Pic10StepResult;
 
-void pic10f200_init(Pic10F200 *cpu, const HexImage *image);
-void pic10f200_reset(Pic10F200 *cpu, Pic10ResetReason reason);
+void pic10_init(Pic10Cpu *cpu, const HexImage *image,
+                const PicDeviceDescription *device);
+void pic10_reset(Pic10Cpu *cpu, Pic10ResetReason reason);
 
 /*
  * 执行一条指令。返回的信息包含该指令消耗的周期数及 GPIO 变化。
  * 普通指令为 1 个周期，跳转以及真正发生的“跳过”为 2 个周期。
  */
-Pic10StepResult pic10f200_step(Pic10F200 *cpu);
+Pic10StepResult pic10_step(Pic10Cpu *cpu);
 
 /* 获取引脚上实际可见的 GPIO 电平，而不是单纯返回输出锁存器。 */
-uint8_t pic10f200_gpio_value(const Pic10F200 *cpu);
+uint8_t pic10_gpio_value(const Pic10Cpu *cpu);
 
 /* 由外部电路驱动或释放一个输入引脚。GP3始终只能作为输入。 */
-void pic10f200_drive_pin(Pic10F200 *cpu, unsigned pin,
+void pic10_drive_pin(Pic10Cpu *cpu, unsigned pin,
                          bool driven, bool high);
 
 /* 调试器使用的只读寄存器访问接口，遵循SFR和INDF读取规则。 */
-uint8_t pic10f200_read_register(Pic10F200 *cpu, uint8_t address);
+uint8_t pic10_read_register(Pic10Cpu *cpu, uint8_t address);
 
 #endif

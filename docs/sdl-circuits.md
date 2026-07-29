@@ -59,6 +59,7 @@ make firmware
 | type | 引脚 | attrs |
 |---|---|---|
 | `pic10f200` | GP0、GP1、GP2、GP3；VDD/VSS仅显示 | 无 |
+| `pic10f202` | 与PIC10F200引脚兼容 | 无 |
 | `led` | A或IN | color: red/green/blue/yellow |
 | `pushbutton` | 1或OUT | activeLow: true/false |
 | `buzzer` | 1或IN | 无 |
@@ -69,10 +70,10 @@ make firmware
 - [`examples/blink/`](../examples/blink/)
 - [`examples/button/`](../examples/button/)
 - [`examples/buzzer/`](../examples/buzzer/)
-- [`examples/fur_elise/`](../examples/fur_elise/)：软件方波播放《致爱丽丝》
+- [`examples/playmusic/`](../examples/playmusic/)：PIC10F202 软件方波播放较长的《致爱丽丝》主旋律
 
 `buzzer`既支持固定高电平驱动的有源蜂鸣器，也会测量GPIO方波的边沿周期。
-`fur_elise`示例利用GP2软件翻转产生不同频率，SDL音频会按测得频率发声。
+`playmusic`示例利用GP2软件翻转产生不同频率，SDL音频会按测得频率发声。
 
 ## 增加可视器件
 

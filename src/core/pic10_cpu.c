@@ -1,10 +1,25 @@
-#include "picemu/core/pic10f200.h"
+#include "picemu/core/pic10_cpu.h"
 
 #include <string.h>
 
 #define BIT(value, bit) (((value) >> (bit)) & 1u)
 
-static void set_status_bit(Pic10F200 *cpu, unsigned bit, bool set)
+static uint16_t program_mask(const Pic10Cpu *cpu)
+{
+    return (uint16_t)(cpu->device->program_words - 1u);
+}
+
+static uint8_t gpr_start(const Pic10Cpu *cpu)
+{
+    return (uint8_t)(0x20u - cpu->device->ram_bytes);
+}
+
+static bool register_implemented(const Pic10Cpu *cpu, uint8_t address)
+{
+    return address <= PIC10_GPIO || address >= gpr_start(cpu);
+}
+
+static void set_status_bit(Pic10Cpu *cpu, unsigned bit, bool set)
 {
     if (set) {
         cpu->ram[PIC10_STATUS] |= (uint8_t)(1u << bit);
@@ -13,12 +28,12 @@ static void set_status_bit(Pic10F200 *cpu, unsigned bit, bool set)
     }
 }
 
-static void update_zero(Pic10F200 *cpu, uint8_t value)
+static void update_zero(Pic10Cpu *cpu, uint8_t value)
 {
     set_status_bit(cpu, PIC10_STATUS_Z, value == 0);
 }
 
-uint8_t pic10f200_gpio_value(const Pic10F200 *cpu)
+uint8_t pic10_gpio_value(const Pic10Cpu *cpu)
 {
     /*
      * TRIS 位为 0 时是输出，读到输出锁存值；
@@ -33,7 +48,7 @@ uint8_t pic10f200_gpio_value(const Pic10F200 *cpu)
                       (inputs & tris)) & 0x0Fu);
 }
 
-uint8_t pic10f200_read_register(Pic10F200 *cpu, uint8_t address)
+uint8_t pic10_read_register(Pic10Cpu *cpu, uint8_t address)
 {
     address &= 0x1Fu;
 
@@ -41,18 +56,18 @@ uint8_t pic10f200_read_register(Pic10F200 *cpu, uint8_t address)
         uint8_t indirect = (uint8_t)(cpu->ram[PIC10_FSR] & 0x1Fu);
         /* FSR 指向 INDF 自己时，PIC 规定读出 0。 */
         return indirect == PIC10_INDF
-            ? 0 : pic10f200_read_register(cpu, indirect);
+            ? 0 : pic10_read_register(cpu, indirect);
     }
     if (address == PIC10_PCL) {
         return (uint8_t)(cpu->pc & 0xFFu);
     }
     if (address == PIC10_GPIO) {
-        return pic10f200_gpio_value(cpu);
+        return pic10_gpio_value(cpu);
     }
-    return cpu->ram[address];
+    return register_implemented(cpu, address) ? cpu->ram[address] : 0;
 }
 
-static void write_register(Pic10F200 *cpu, uint8_t address, uint8_t value)
+static void write_register(Pic10Cpu *cpu, uint8_t address, uint8_t value)
 {
     address &= 0x1Fu;
 
@@ -65,11 +80,10 @@ static void write_register(Pic10F200 *cpu, uint8_t address, uint8_t value)
     }
     if (address == PIC10_PCL) {
         /*
-         * 写 PCL 会改变下一条指令地址。PIC10F200 只有 9 位 PC，
-         * 最高位来自 STATUS.PA0。
+         * 对PIC10F200/202，写PCL时PC<8>固定清零，因此计算跳转和
+         * CALL一样只能进入当前512字页面的低256字。
          */
-        cpu->pc = (uint16_t)((BIT(cpu->ram[PIC10_STATUS],
-                                  PIC10_STATUS_PA0) << 8) | value);
+        cpu->pc = value;
         return;
     }
     if (address == PIC10_TMR0) {
@@ -84,12 +98,11 @@ static void write_register(Pic10F200 *cpu, uint8_t address, uint8_t value)
     }
     if (address == PIC10_STATUS) {
         /*
-         * TO和PD是只读状态位；位6、7在PIC10F200中未实现。
-         * C/DC/Z及页面选择位PA0可以由软件写入。
+         * TO和PD是只读状态位；位5～7未实现。C/DC/Z可由软件写入。
          */
         cpu->ram[PIC10_STATUS] =
             (uint8_t)((cpu->ram[PIC10_STATUS] & 0x18u) |
-                      (value & 0x27u));
+                      (value & 0x07u));
         return;
     }
     if (address == PIC10_GPIO) {
@@ -98,10 +111,12 @@ static void write_register(Pic10F200 *cpu, uint8_t address, uint8_t value)
         return;
     }
 
-    cpu->ram[address] = value;
+    if (register_implemented(cpu, address)) {
+        cpu->ram[address] = value;
+    }
 }
 
-static void write_destination(Pic10F200 *cpu, uint8_t file,
+static void write_destination(Pic10Cpu *cpu, uint8_t file,
                               bool destination_file, uint8_t value)
 {
     if (destination_file) {
@@ -111,19 +126,19 @@ static void write_destination(Pic10F200 *cpu, uint8_t file,
     }
 }
 
-static void push_stack(Pic10F200 *cpu, uint16_t address)
+static void push_stack(Pic10Cpu *cpu, uint16_t address)
 {
     cpu->stack[cpu->stack_pointer] = address;
     cpu->stack_pointer = (uint8_t)((cpu->stack_pointer + 1u) & 1u);
 }
 
-static uint16_t pop_stack(Pic10F200 *cpu)
+static uint16_t pop_stack(Pic10Cpu *cpu)
 {
     cpu->stack_pointer = (uint8_t)((cpu->stack_pointer - 1u) & 1u);
     return cpu->stack[cpu->stack_pointer];
 }
 
-static void tick_timer0(Pic10F200 *cpu, unsigned instruction_cycles)
+static void tick_timer0(Pic10Cpu *cpu, unsigned instruction_cycles)
 {
     unsigned i;
 
@@ -151,7 +166,7 @@ static void tick_timer0(Pic10F200 *cpu, unsigned instruction_cycles)
     }
 }
 
-static void timer0_external_pulse(Pic10F200 *cpu)
+static void timer0_external_pulse(Pic10Cpu *cpu)
 {
     if (BIT(cpu->option, 3)) {
         ++cpu->ram[PIC10_TMR0];
@@ -164,14 +179,15 @@ static void timer0_external_pulse(Pic10F200 *cpu)
     }
 }
 
-void pic10f200_reset(Pic10F200 *cpu, Pic10ResetReason reason)
+void pic10_reset(Pic10Cpu *cpu, Pic10ResetReason reason)
 {
-    uint8_t preserved_gpr[16];
+    uint8_t preserved_gpr[24];
+    uint8_t start = gpr_start(cpu);
 
-    memcpy(preserved_gpr, &cpu->ram[0x10], sizeof(preserved_gpr));
+    memcpy(preserved_gpr, &cpu->ram[start], cpu->device->ram_bytes);
     memset(cpu->ram, 0, sizeof(cpu->ram));
     if (reason != PIC10_RESET_POWER_ON) {
-        memcpy(&cpu->ram[0x10], preserved_gpr, sizeof(preserved_gpr));
+        memcpy(&cpu->ram[start], preserved_gpr, cpu->device->ram_bytes);
     }
 
     cpu->pc = 0;
@@ -198,10 +214,11 @@ void pic10f200_reset(Pic10F200 *cpu, Pic10ResetReason reason)
     }
 }
 
-void pic10f200_init(Pic10F200 *cpu, const HexImage *image)
+void pic10_init(Pic10Cpu *cpu, const HexImage *image,
+                const PicDeviceDescription *device)
 {
     memset(cpu, 0, sizeof(*cpu));
-    cpu->device = &PIC_DEVICE_PIC10F200;
+    cpu->device = device;
     memcpy(cpu->program, image->program, sizeof(cpu->program));
     cpu->config_word = image->config_present ? image->config_word : 0x0FFFu;
     cpu->watchdog_enabled = BIT(cpu->config_word, 2) != 0;
@@ -211,10 +228,10 @@ void pic10f200_init(Pic10F200 *cpu, const HexImage *image)
      * 芯片、温度和电压造成的WDT振荡器离散性。
      */
     cpu->watchdog_base_period = 18000;
-    pic10f200_reset(cpu, PIC10_RESET_POWER_ON);
+    pic10_reset(cpu, PIC10_RESET_POWER_ON);
 }
 
-static bool tick_watchdog(Pic10F200 *cpu, unsigned cycles)
+static bool tick_watchdog(Pic10Cpu *cpu, unsigned cycles)
 {
     uint32_t divider = 1;
     uint64_t timeout;
@@ -237,12 +254,12 @@ static bool tick_watchdog(Pic10F200 *cpu, unsigned cycles)
         set_status_bit(cpu, PIC10_STATUS_TO, false);
         set_status_bit(cpu, PIC10_STATUS_PD, false);
     } else {
-        pic10f200_reset(cpu, PIC10_RESET_WATCHDOG);
+        pic10_reset(cpu, PIC10_RESET_WATCHDOG);
     }
     return true;
 }
 
-void pic10f200_drive_pin(Pic10F200 *cpu, unsigned pin,
+void pic10_drive_pin(Pic10Cpu *cpu, unsigned pin,
                          bool driven, bool high)
 {
     uint8_t mask;
@@ -253,7 +270,7 @@ void pic10f200_drive_pin(Pic10F200 *cpu, unsigned pin,
         return;
     }
     mask = (uint8_t)(1u << pin);
-    old_level = pic10f200_gpio_value(cpu);
+    old_level = pic10_gpio_value(cpu);
 
     if (driven) {
         cpu->gpio_input_mask |= mask;
@@ -267,7 +284,7 @@ void pic10f200_drive_pin(Pic10F200 *cpu, unsigned pin,
         cpu->gpio_inputs &= (uint8_t)~mask;
     }
 
-    new_level = pic10f200_gpio_value(cpu);
+    new_level = pic10_gpio_value(cpu);
     if (pin == 2 && BIT(cpu->option, 5) &&
         ((old_level ^ new_level) & mask) != 0) {
         bool rising = (new_level & mask) != 0;
@@ -284,7 +301,7 @@ void pic10f200_drive_pin(Pic10F200 *cpu, unsigned pin,
     }
 }
 
-Pic10StepResult pic10f200_step(Pic10F200 *cpu)
+Pic10StepResult pic10_step(Pic10Cpu *cpu)
 {
     Pic10StepResult result = {0};
     uint16_t instruction;
@@ -295,7 +312,7 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
     uint8_t value;
     unsigned cycles = 1;
 
-    old_gpio = pic10f200_gpio_value(cpu);
+    old_gpio = pic10_gpio_value(cpu);
 
     if (cpu->stopped) {
         result.old_gpio = old_gpio;
@@ -306,14 +323,14 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
         cpu->cycles += 1;
         result.woke_from_sleep = tick_watchdog(cpu, 1);
         result.old_gpio = old_gpio;
-        result.new_gpio = pic10f200_gpio_value(cpu);
+        result.new_gpio = pic10_gpio_value(cpu);
         result.gpio_changed = result.old_gpio != result.new_gpio;
         result.instruction_cycles = 1;
         return result;
     }
-    if (cpu->pc >= PIC10F200_PROGRAM_WORDS) {
+    if (cpu->pc >= cpu->device->program_words) {
         cpu->stopped = true;
-        cpu->stop_reason = "程序计数器超出 PIC10F200 程序空间";
+        cpu->stop_reason = "程序计数器超出器件程序空间";
         result.old_gpio = old_gpio;
         result.new_gpio = old_gpio;
         return result;
@@ -327,7 +344,7 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
      * PIC 在执行指令前先把 PC 指向下一条指令。这样 CALL 压栈的就是
      * 返回地址，读取 PCL 时也能自然得到流水线中的 PC 值。
      */
-    cpu->pc = (uint16_t)((cpu->pc + 1u) & 0x01FFu);
+    cpu->pc = (uint16_t)((cpu->pc + 1u) & program_mask(cpu));
     file = (uint8_t)(instruction & 0x1Fu);
     destination_file = BIT(instruction, 5) != 0;
 
@@ -364,7 +381,7 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
         unsigned rhs;
         unsigned difference;
 
-        operand = pic10f200_read_register(cpu, file);
+        operand = pic10_read_register(cpu, file);
         lhs = operand;
         rhs = cpu->w;
         difference = (lhs - rhs) & 0xFFu;
@@ -375,25 +392,25 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
                        (lhs & 0x0Fu) >= (rhs & 0x0Fu));
         update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x0C0u) { /* DECF f,d */
-        value = (uint8_t)(pic10f200_read_register(cpu, file) - 1u);
+        value = (uint8_t)(pic10_read_register(cpu, file) - 1u);
         write_destination(cpu, file, destination_file, value);
         update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x100u) { /* IORWF f,d */
-        value = (uint8_t)(pic10f200_read_register(cpu, file) | cpu->w);
+        value = (uint8_t)(pic10_read_register(cpu, file) | cpu->w);
         write_destination(cpu, file, destination_file, value);
         update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x140u) { /* ANDWF f,d */
-        value = (uint8_t)(pic10f200_read_register(cpu, file) & cpu->w);
+        value = (uint8_t)(pic10_read_register(cpu, file) & cpu->w);
         write_destination(cpu, file, destination_file, value);
         update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x180u) { /* XORWF f,d */
-        value = (uint8_t)(pic10f200_read_register(cpu, file) ^ cpu->w);
+        value = (uint8_t)(pic10_read_register(cpu, file) ^ cpu->w);
         write_destination(cpu, file, destination_file, value);
         update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x1C0u) { /* ADDWF f,d */
         unsigned sum;
 
-        operand = pic10f200_read_register(cpu, file);
+        operand = pic10_read_register(cpu, file);
         sum = (unsigned)operand + cpu->w;
         value = (uint8_t)sum;
         write_destination(cpu, file, destination_file, value);
@@ -402,46 +419,46 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
                        ((operand & 0x0Fu) + (cpu->w & 0x0Fu)) > 0x0Fu);
         update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x200u) { /* MOVF f,d */
-        value = pic10f200_read_register(cpu, file);
+        value = pic10_read_register(cpu, file);
         write_destination(cpu, file, destination_file, value);
         update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x240u) { /* COMF f,d */
-        value = (uint8_t)~pic10f200_read_register(cpu, file);
+        value = (uint8_t)~pic10_read_register(cpu, file);
         write_destination(cpu, file, destination_file, value);
         update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x280u) { /* INCF f,d */
-        value = (uint8_t)(pic10f200_read_register(cpu, file) + 1u);
+        value = (uint8_t)(pic10_read_register(cpu, file) + 1u);
         write_destination(cpu, file, destination_file, value);
         update_zero(cpu, value);
     } else if ((instruction & 0xFC0u) == 0x2C0u) { /* DECFSZ f,d */
-        value = (uint8_t)(pic10f200_read_register(cpu, file) - 1u);
+        value = (uint8_t)(pic10_read_register(cpu, file) - 1u);
         write_destination(cpu, file, destination_file, value);
         if (value == 0) {
-            cpu->pc = (uint16_t)((cpu->pc + 1u) & 0x01FFu);
+            cpu->pc = (uint16_t)((cpu->pc + 1u) & program_mask(cpu));
             cycles = 2;
         }
     } else if ((instruction & 0xFC0u) == 0x300u) { /* RRF f,d */
-        operand = pic10f200_read_register(cpu, file);
+        operand = pic10_read_register(cpu, file);
         value = (uint8_t)((operand >> 1) |
                           (BIT(cpu->ram[PIC10_STATUS],
                                PIC10_STATUS_C) << 7));
         set_status_bit(cpu, PIC10_STATUS_C, (operand & 1u) != 0);
         write_destination(cpu, file, destination_file, value);
     } else if ((instruction & 0xFC0u) == 0x340u) { /* RLF f,d */
-        operand = pic10f200_read_register(cpu, file);
+        operand = pic10_read_register(cpu, file);
         value = (uint8_t)((operand << 1) |
                           BIT(cpu->ram[PIC10_STATUS], PIC10_STATUS_C));
         set_status_bit(cpu, PIC10_STATUS_C, (operand & 0x80u) != 0);
         write_destination(cpu, file, destination_file, value);
     } else if ((instruction & 0xFC0u) == 0x380u) { /* SWAPF f,d */
-        operand = pic10f200_read_register(cpu, file);
+        operand = pic10_read_register(cpu, file);
         value = (uint8_t)((operand << 4) | (operand >> 4));
         write_destination(cpu, file, destination_file, value);
     } else if ((instruction & 0xFC0u) == 0x3C0u) { /* INCFSZ f,d */
-        value = (uint8_t)(pic10f200_read_register(cpu, file) + 1u);
+        value = (uint8_t)(pic10_read_register(cpu, file) + 1u);
         write_destination(cpu, file, destination_file, value);
         if (value == 0) {
-            cpu->pc = (uint16_t)((cpu->pc + 1u) & 0x01FFu);
+            cpu->pc = (uint16_t)((cpu->pc + 1u) & program_mask(cpu));
             cycles = 2;
         }
     } else if ((instruction & 0xF00u) >= 0x400u &&
@@ -450,7 +467,7 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
         unsigned bit = (instruction >> 5) & 0x07u;
         uint8_t mask = (uint8_t)(1u << bit);
 
-        operand = pic10f200_read_register(cpu, file);
+        operand = pic10_read_register(cpu, file);
         if (operation == 0) {                    /* BCF f,b */
             write_register(cpu, file, (uint8_t)(operand & ~mask));
         } else if (operation == 1) {             /* BSF f,b */
@@ -459,7 +476,7 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
             bool bit_is_set = (operand & mask) != 0;
             bool should_skip = operation == 2 ? !bit_is_set : bit_is_set;
             if (should_skip) {                   /* BTFSC / BTFSS */
-                cpu->pc = (uint16_t)((cpu->pc + 1u) & 0x01FFu);
+                cpu->pc = (uint16_t)((cpu->pc + 1u) & program_mask(cpu));
                 cycles = 2;
             }
         }
@@ -470,13 +487,14 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
     } else if ((instruction & 0xF00u) == 0x900u) { /* CALL k */
         push_stack(cpu, cpu->pc);
         /*
-         * Baseline CALL 只携带 8 位目标；对 PIC10F200 来说目标位于
-         * 当前 256 字页面内。blink.hex 正是用 CALL 0xFE 调跳板。
+         * Baseline CALL只携带8位目标，PC<8>固定清零，所以即使
+         * PIC10F202有512字程序空间，子程序入口仍必须在低256字。
          */
         cpu->pc = (uint16_t)(instruction & 0x0FFu);
         cycles = 2;
     } else if ((instruction & 0xE00u) == 0xA00u) { /* GOTO k */
-        cpu->pc = (uint16_t)(instruction & 0x1FFu);
+        cpu->pc =
+            (uint16_t)((instruction & 0x1FFu) & program_mask(cpu));
         cycles = 2;
     } else if ((instruction & 0xF00u) == 0xC00u) { /* MOVLW k */
         cpu->w = (uint8_t)instruction;
@@ -500,7 +518,7 @@ Pic10StepResult pic10f200_step(Pic10F200 *cpu)
         cpu->last_reset == PIC10_RESET_WATCHDOG;
 
     result.old_gpio = old_gpio;
-    result.new_gpio = pic10f200_gpio_value(cpu);
+    result.new_gpio = pic10_gpio_value(cpu);
     result.gpio_changed = result.old_gpio != result.new_gpio;
     result.instruction_cycles = cycles;
     return result;

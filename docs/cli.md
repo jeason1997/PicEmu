@@ -11,6 +11,7 @@ make
 
 ```text
 --cycles N          最多执行N个PIC指令周期
+--device NAME       PIC10F200（默认）或PIC10F202
 --quiet             不打印GPIO变化
 --trace             逐条显示机器码、反汇编和寄存器
 --disassemble       反汇编后退出
@@ -24,6 +25,8 @@ make
 
 ```sh
 ./build/picemu examples/blink/build/firmware.hex --disassemble
+./build/picemu examples/playmusic/build/firmware.hex \
+  --device PIC10F202 --cycles 1100000
 ./build/picemu examples/blink/build/firmware.hex --cycles 100 --trace --dump
 ./build/picemu examples/blink/build/firmware.hex --break 0x00E --dump
 ./build/picemu examples/blink/build/firmware.hex \

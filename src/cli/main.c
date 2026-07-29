@@ -1,6 +1,6 @@
 #include "picemu/core/disassembler.h"
 #include "picemu/firmware/hex_loader.h"
-#include "picemu/core/pic10f200.h"
+#include "picemu/core/pic10_cpu.h"
 #include "picemu/cli/vcd_writer.h"
 
 #include <errno.h>
@@ -22,6 +22,7 @@ static void print_usage(const char *program)
 {
     printf("用法：%s firmware.hex [选项]\n\n", program);
     printf("  --cycles N          最多模拟N个指令周期，默认1000000\n");
+    printf("  --device NAME       芯片型号：PIC10F200（默认）或PIC10F202\n");
     printf("  --quiet             不打印GPIO变化\n");
     printf("  --trace             打印每条执行指令及执行前状态\n");
     printf("  --disassemble       反汇编HEX中的程序并退出\n");
@@ -134,31 +135,34 @@ static bool load_events(const char *path, PinEvent *events, size_t *count,
     return true;
 }
 
-static void dump_state(Pic10F200 *cpu)
+static void dump_state(Pic10Cpu *cpu)
 {
     unsigned address;
+    unsigned start = 0x20u - cpu->device->ram_bytes;
 
     printf("\n寄存器状态：\n");
     printf("  PC=0x%03X  W=0x%02X  STATUS=0x%02X  FSR=0x%02X\n",
            cpu->pc, cpu->w, cpu->ram[PIC10_STATUS], cpu->ram[PIC10_FSR]);
     printf("  TMR0=0x%02X  OPTION=0x%02X  GPIO=0x%X  TRIS=0x%X\n",
            cpu->ram[PIC10_TMR0], cpu->option,
-           pic10f200_gpio_value(cpu), cpu->tris_gpio);
+           pic10_gpio_value(cpu), cpu->tris_gpio);
     printf("  STACK=[0x%03X,0x%03X]  SP=%u  WDT=%u  SLEEP=%s\n",
            cpu->stack[0], cpu->stack[1], cpu->stack_pointer,
            cpu->watchdog_counter, cpu->sleeping ? "是" : "否");
     printf("通用RAM：\n");
-    for (address = 0x10; address <= 0x1F; ++address) {
+    for (address = start; address <= 0x1F; ++address) {
         printf("  %02X:%02X%s", address, cpu->ram[address],
-               ((address - 0x0F) % 8) == 0 ? "\n" : " ");
+               ((address - start + 1) % 8) == 0 ? "\n" : " ");
     }
+    if ((cpu->device->ram_bytes % 8) != 0) printf("\n");
 }
 
-static void disassemble_image(const HexImage *image)
+static void disassemble_image(const HexImage *image,
+                              const PicDeviceDescription *device)
 {
     unsigned address;
 
-    for (address = 0; address < PIC10F200_PROGRAM_WORDS; ++address) {
+    for (address = 0; address < device->program_words; ++address) {
         if (image->program_present[address]) {
             char text[64];
             pic10_disassemble(image->program[address], text, sizeof(text));
@@ -173,6 +177,7 @@ int main(int argc, char **argv)
     const char *hex_path;
     const char *vcd_path = NULL;
     const char *events_path = NULL;
+    const PicDeviceDescription *device = &PIC_DEVICE_PIC10F200;
     uint64_t cycle_limit = 1000000;
     uint16_t breakpoint = 0;
     bool has_breakpoint = false;
@@ -181,7 +186,7 @@ int main(int argc, char **argv)
     bool disassemble = false;
     bool dump = false;
     HexImage image;
-    Pic10F200 cpu;
+    Pic10Cpu cpu;
     VcdWriter vcd = {0};
     PinEvent events[MAX_PIN_EVENTS];
     size_t event_count = 0;
@@ -201,6 +206,12 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--cycles") == 0) {
             if (++i >= argc || !parse_u64(argv[i], &cycle_limit)) {
                 fprintf(stderr, "--cycles后需要一个非负整数\n");
+                return EXIT_FAILURE;
+            }
+        } else if (strcmp(argv[i], "--device") == 0) {
+            if (++i >= argc || (device = pic_device_find(argv[i])) == NULL) {
+                fprintf(stderr,
+                        "--device需要已支持的型号：PIC10F200或PIC10F202\n");
                 return EXIT_FAILURE;
             }
         } else if (strcmp(argv[i], "--break") == 0) {
@@ -244,19 +255,19 @@ int main(int argc, char **argv)
         fprintf(stderr, "加载失败：%s\n", error);
         return EXIT_FAILURE;
     }
-    for (i = 0; i < (int)PIC10F200_PROGRAM_WORDS; ++i) {
+    for (i = 0; i < (int)device->program_words; ++i) {
         loaded_words += image.program_present[i] ? 1u : 0u;
     }
 
-    printf("已加载：%s\n", hex_path);
-    printf("程序字：%u / %u", loaded_words, PIC10F200_PROGRAM_WORDS);
+    printf("已加载：%s（%s）\n", hex_path, device->name);
+    printf("程序字：%u / %u", loaded_words, device->program_words);
     if (image.config_present) {
         printf("，配置字：0x%03X", image.config_word);
     }
     printf("\n");
 
     if (disassemble) {
-        disassemble_image(&image);
+        disassemble_image(&image, device);
         return EXIT_SUCCESS;
     }
     if (events_path != NULL &&
@@ -266,7 +277,7 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    pic10f200_init(&cpu, &image);
+    pic10_init(&cpu, &image, device);
     if (vcd_path != NULL && !vcd_open(&vcd, vcd_path, &cpu)) {
         fprintf(stderr, "无法创建VCD文件：%s\n", vcd_path);
         return EXIT_FAILURE;
@@ -280,7 +291,7 @@ int main(int argc, char **argv)
         while (next_event < event_count &&
                events[next_event].cycle <= cpu.cycles) {
             PinEvent *event = &events[next_event++];
-            pic10f200_drive_pin(&cpu, event->pin,
+            pic10_drive_pin(&cpu, event->pin,
                                 event->driven, event->high);
         }
         if (has_breakpoint && !cpu.sleeping && cpu.pc == breakpoint) {
@@ -298,10 +309,10 @@ int main(int argc, char **argv)
                    "W=%02X STATUS=%02X GPIO=%X\n",
                    cpu.cycles, pc_before, instruction, assembly,
                    cpu.w, cpu.ram[PIC10_STATUS],
-                   pic10f200_gpio_value(&cpu));
+                   pic10_gpio_value(&cpu));
         }
 
-        step = pic10f200_step(&cpu);
+        step = pic10_step(&cpu);
         vcd_sample(&vcd, &cpu);
 
         if (step.gpio_changed) {
@@ -329,7 +340,7 @@ int main(int argc, char **argv)
     vcd_close(&vcd);
     printf("执行结束：周期=%" PRIu64 "，PC=0x%03X，W=0x%02X，"
            "GPIO=0x%X，GPIO变化=%u次\n",
-           cpu.cycles, cpu.pc, cpu.w, pic10f200_gpio_value(&cpu),
+           cpu.cycles, cpu.pc, cpu.w, pic10_gpio_value(&cpu),
            gpio_events);
     if (dump) {
         dump_state(&cpu);

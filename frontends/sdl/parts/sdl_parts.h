@@ -3,13 +3,14 @@
 
 #include "picemu/sim/circuit_config.h"
 #include "picemu/sim/device.h"
+#include "picemu/core/pic_device.h"
 
 #include <SDL2/SDL.h>
 
 #include <stdbool.h>
 
 typedef enum {
-    SDL_PART_PIC10F200,
+    SDL_PART_PIC10,
     SDL_PART_LED,
     SDL_PART_BUTTON,
     SDL_PART_BUZZER
@@ -20,6 +21,7 @@ typedef struct {
     SdlPartType type;
     int x;
     int y;
+    const PicDeviceDescription *pic_device;
     union {
         SimLed led;
         SimButton button;
@@ -27,9 +29,9 @@ typedef struct {
     } device;
 } SdlPart;
 
-void sdl_part_pic10f200_render(SDL_Renderer *renderer,
+void sdl_part_pic10_render(SDL_Renderer *renderer,
                               const SdlPart *part);
-bool sdl_part_pic10f200_pin(const SdlPart *part, const char *name,
+bool sdl_part_pic10_pin(const SdlPart *part, const char *name,
                            unsigned *gpio, SDL_Point *point,
                            bool *is_signal);
 
