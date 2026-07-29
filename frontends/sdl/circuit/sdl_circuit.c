@@ -190,9 +190,9 @@ void sdl_circuit_reset(SdlCircuit *circuit)
     sim_board_reset(&circuit->board);
 }
 
-void sdl_circuit_step(SdlCircuit *circuit)
+unsigned sdl_circuit_step(SdlCircuit *circuit)
 {
-    sim_board_step(&circuit->board);
+    return sim_board_step(&circuit->board);
 }
 
 void sdl_circuit_render(SDL_Renderer *renderer,

@@ -19,9 +19,13 @@ run_example()
     fi
 }
 
-BLINK=$(run_example blink 1200000)
+BLINK=$(run_example blink 2200000)
 printf '%s\n' "$BLINK" | grep -q 'GP0 -> 1'
-printf '%s\n' "$BLINK" | grep -q 'GP1 -> 1'
+printf '%s\n' "$BLINK" | grep -q 'GP0 -> 0'
+if printf '%s\n' "$BLINK" | grep -q 'GP1 ->'; then
+    echo "blink示例不应改变GP1" >&2
+    exit 1
+fi
 
 BUTTON=$(run_example button 70000 events.txt)
 printf '%s\n' "$BUTTON" | grep -q 'GP0 -> 0'

@@ -1,8 +1,14 @@
 PROJECT_ROOT := ../..
 EXAMPLE ?= blink
+CLOCK_MHZ ?= 128
+SUPPORTED_CLOCKS := 16 24 32 40 48 56 64 72 128
+ifeq ($(filter $(CLOCK_MHZ),$(SUPPORTED_CLOCKS)),)
+$(error CLOCK_MHZ=$(CLOCK_MHZ)不受支持，可选值：$(SUPPORTED_CLOCKS))
+endif
 BUILD_ROOT := build
 BUILD_DIR := $(BUILD_ROOT)/$(EXAMPLE)
 TARGET := $(BUILD_DIR)/picemu-stm32f103
+CLOCK_STAMP := $(BUILD_DIR)/.clock-$(CLOCK_MHZ)mhz
 FIRMWARE_HEX := $(PROJECT_ROOT)/examples/$(EXAMPLE)/build/firmware.hex
 HEX2C := $(PROJECT_ROOT)/build/hex2c
 GENERATED_FIRMWARE := $(BUILD_DIR)/generated/firmware.c
@@ -13,7 +19,8 @@ OBJCOPY := $(CROSS)objcopy
 SIZE := $(CROSS)size
 HOST_CC ?= gcc
 
-CPPFLAGS := -Iinclude -I$(PROJECT_ROOT)/include
+CPPFLAGS := -Iinclude -I$(PROJECT_ROOT)/include \
+	-DSTM32_CLOCK_MHZ=$(CLOCK_MHZ)
 CFLAGS := -mcpu=cortex-m3 -mthumb -std=c11 -O3 -g3 \
 	-flto -ffunction-sections -fdata-sections -Wall -Wextra -Wpedantic
 CFLAGS += $(CFLAGS_EXTRA)
@@ -41,6 +48,13 @@ DEPFILES := $(OBJECTS:.o=.d)
 
 all: $(TARGET).elf $(TARGET).bin $(TARGET).hex
 	$(SIZE) $(TARGET).elf
+
+$(CLOCK_STAMP):
+	@mkdir -p $(dir $@)
+	@rm -f $(BUILD_DIR)/.clock-*mhz
+	@touch $@
+
+$(OBJECTS): $(CLOCK_STAMP)
 
 $(TARGET).elf: $(OBJECTS) stm32f103.ld
 	@mkdir -p $(dir $@)

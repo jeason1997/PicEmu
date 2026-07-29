@@ -67,6 +67,21 @@ void debug_uart_puts(const char *text)
     }
 }
 
+void debug_uart_put_u64(uint64_t value)
+{
+    char digits[20];
+    unsigned count = 0;
+
+    do {
+        digits[count++] = (char)('0' + value % 10u);
+        value /= 10u;
+    } while (value != 0);
+
+    while (count != 0) {
+        debug_uart_putc(digits[--count]);
+    }
+}
+
 void debug_uart_flush(void)
 {
     /* 等最后一个停止位真正离开发送引脚。 */

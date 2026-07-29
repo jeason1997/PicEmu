@@ -90,6 +90,7 @@ void pic10_reset(Pic10Cpu *cpu, Pic10ResetReason reason);
  * 普通指令为 1 个周期，跳转以及真正发生的“跳过”为 2 个周期。
  */
 Pic10StepResult pic10_step(Pic10Cpu *cpu);
+unsigned pic10_step_cycles(Pic10Cpu *cpu);
 
 /* 获取引脚上实际可见的 GPIO 电平，而不是单纯返回输出锁存器。 */
 uint8_t pic10_gpio_value(const Pic10Cpu *cpu);

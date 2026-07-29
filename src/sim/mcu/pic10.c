@@ -9,7 +9,7 @@ static void pic10_mcu_reset(SimMcu *mcu)
 static unsigned pic10_mcu_step(SimMcu *mcu)
 {
     SimPic10Mcu *adapter = mcu->state;
-    return pic10_step(adapter->cpu).instruction_cycles;
+    return pic10_step_cycles(adapter->cpu);
 }
 
 static unsigned pic10_mcu_pin_count(const SimMcu *mcu)

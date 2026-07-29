@@ -337,6 +337,24 @@ static void test_generic_circuit_properties(void)
     CHECK(circuit_part_get_long(button, "missing", 123) == 123);
 }
 
+static void test_fast_countdown_loop(void)
+{
+    HexImage image = blank_image(false);
+    Pic10Cpu cpu;
+    unsigned cycles;
+
+    image.program[0] = 0x2F0u; /* DECFSZ 0x10,F */
+    image.program[1] = 0xA00u; /* GOTO 0 */
+    pic10_init(&cpu, &image, &PIC_DEVICE_PIC10F200);
+    cpu.ram[0x10] = 5;
+
+    cycles = pic10_step_cycles(&cpu);
+    CHECK(cycles == 14u); /* 3 * 5 - 1 */
+    CHECK(cpu.cycles == 14u);
+    CHECK(cpu.pc == 2u);
+    CHECK(cpu.ram[0x10] == 0);
+}
+
 int main(void)
 {
     test_addwf_flags();
@@ -355,6 +373,7 @@ int main(void)
     test_buzzer_uses_configured_clock();
     test_network_merge();
     test_generic_circuit_properties();
+    test_fast_countdown_loop();
 
     if (failures != 0) {
         fprintf(stderr, "CPU单元测试失败：%u项\n", failures);

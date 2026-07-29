@@ -301,7 +301,8 @@ void pic10_drive_pin(Pic10Cpu *cpu, unsigned pin,
     }
 }
 
-Pic10StepResult pic10_step(Pic10Cpu *cpu)
+static Pic10StepResult pic10_step_internal(Pic10Cpu *cpu,
+                                           bool capture_details)
 {
     Pic10StepResult result = {0};
     uint16_t instruction;
@@ -312,27 +313,33 @@ Pic10StepResult pic10_step(Pic10Cpu *cpu)
     uint8_t value;
     unsigned cycles = 1;
 
-    old_gpio = pic10_gpio_value(cpu);
+    old_gpio = capture_details ? pic10_gpio_value(cpu) : 0;
 
     if (cpu->stopped) {
-        result.old_gpio = old_gpio;
-        result.new_gpio = old_gpio;
+        if (capture_details) {
+            result.old_gpio = old_gpio;
+            result.new_gpio = old_gpio;
+        }
         return result;
     }
     if (cpu->sleeping) {
         cpu->cycles += 1;
         result.woke_from_sleep = tick_watchdog(cpu, 1);
-        result.old_gpio = old_gpio;
-        result.new_gpio = pic10_gpio_value(cpu);
-        result.gpio_changed = result.old_gpio != result.new_gpio;
+        if (capture_details) {
+            result.old_gpio = old_gpio;
+            result.new_gpio = pic10_gpio_value(cpu);
+            result.gpio_changed = result.old_gpio != result.new_gpio;
+        }
         result.instruction_cycles = 1;
         return result;
     }
     if (cpu->pc >= cpu->device->program_words) {
         cpu->stopped = true;
         cpu->stop_reason = "程序计数器超出器件程序空间";
-        result.old_gpio = old_gpio;
-        result.new_gpio = old_gpio;
+        if (capture_details) {
+            result.old_gpio = old_gpio;
+            result.new_gpio = old_gpio;
+        }
         return result;
     }
 
@@ -348,7 +355,23 @@ Pic10StepResult pic10_step(Pic10Cpu *cpu)
     file = (uint8_t)(instruction & 0x1Fu);
     destination_file = BIT(instruction, 5) != 0;
 
-    if (instruction == 0x000u) {                 /* NOP */
+    /*
+     * 延时循环最常见的两条指令放在最前面。XC8生成的软件延时主要由
+     * DECFSZ和GOTO组成；若让它们穿过下面整条通用解码链，会浪费大量
+     * Cortex-M3分支和比较周期。
+     */
+    if ((instruction & 0xFC0u) == 0x2C0u) {      /* DECFSZ f,d */
+        value = (uint8_t)(pic10_read_register(cpu, file) - 1u);
+        write_destination(cpu, file, destination_file, value);
+        if (value == 0) {
+            cpu->pc = (uint16_t)((cpu->pc + 1u) & program_mask(cpu));
+            cycles = 2;
+        }
+    } else if ((instruction & 0xE00u) == 0xA00u) { /* GOTO k */
+        cpu->pc =
+            (uint16_t)((instruction & 0x1FFu) & program_mask(cpu));
+        cycles = 2;
+    } else if (instruction == 0x000u) {           /* NOP */
         /* 什么也不做。 */
     } else if (instruction == 0x002u) {          /* OPTION */
         cpu->option = cpu->w;
@@ -517,9 +540,63 @@ Pic10StepResult pic10_step(Pic10Cpu *cpu)
     result.reset_occurred = tick_watchdog(cpu, cycles) &&
         cpu->last_reset == PIC10_RESET_WATCHDOG;
 
-    result.old_gpio = old_gpio;
-    result.new_gpio = pic10_gpio_value(cpu);
-    result.gpio_changed = result.old_gpio != result.new_gpio;
+    if (capture_details) {
+        result.old_gpio = old_gpio;
+        result.new_gpio = pic10_gpio_value(cpu);
+        result.gpio_changed = result.old_gpio != result.new_gpio;
+    }
     result.instruction_cycles = cycles;
     return result;
+}
+
+Pic10StepResult pic10_step(Pic10Cpu *cpu)
+{
+    return pic10_step_internal(cpu, true);
+}
+
+unsigned pic10_step_cycles(Pic10Cpu *cpu)
+{
+    uint16_t pc;
+    uint16_t instruction;
+    uint16_t next_instruction;
+    uint8_t file;
+
+    /*
+     * XC8的软件延时使用下面的标准倒计时循环：
+     *
+     * loop: DECFSZ file,F
+     *       GOTO    loop
+     *
+     * 普通情况下每轮为1+2=3周期，最后一次DECFSZ变为0并跳过GOTO，
+     * 消耗2周期。因此从N倒数到0总计3*N-1周期。
+     *
+     * 只有在不会遗漏WDT复位和内部Timer0计数时才批量执行。外部GPIO在
+     * 这两条指令中不会被读取或写入；单次批处理最多覆盖256次循环。
+     */
+    if (!cpu->stopped && !cpu->sleeping &&
+        !cpu->watchdog_enabled && BIT(cpu->option, 5)) {
+        unsigned iterations;
+        unsigned cycles;
+
+        pc = cpu->pc;
+        instruction = (uint16_t)(cpu->program[pc] & 0x0FFFu);
+        file = (uint8_t)(instruction & 0x1Fu);
+        next_instruction = (uint16_t)(
+            cpu->program[(pc + 1u) & program_mask(cpu)] & 0x0FFFu);
+
+        if ((instruction & 0xFC0u) == 0x2C0u &&
+            BIT(instruction, 5) &&
+            file >= gpr_start(cpu) &&
+            (next_instruction & 0xE00u) == 0xA00u &&
+            (next_instruction & 0x1FFu) == pc) {
+            iterations = cpu->ram[file] == 0 ? 256u : cpu->ram[file];
+            cycles = iterations * 3u - 1u;
+            cpu->ram[file] = 0;
+            cpu->pc = (uint16_t)((pc + 2u) & program_mask(cpu));
+            cpu->cycles += cycles;
+            return cycles;
+        }
+    }
+
+    return pic10_step_internal(cpu, false).instruction_cycles;
 }

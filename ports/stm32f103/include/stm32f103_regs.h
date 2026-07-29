@@ -62,7 +62,7 @@ static volatile uint32_t stm32_mock_dwt_cyccnt;
 #define RCC_CR_PLLON         (1u << 24)
 #define RCC_CR_PLLRDY        (1u << 25)
 #define RCC_CFGR_PLLSRC_HSE  (1u << 16)
-#define RCC_CFGR_PLLMUL16    (14u << 18)
+#define RCC_CFGR_PLLMUL(multiplier) (((multiplier) - 2u) << 18)
 #define RCC_CFGR_PPRE1_DIV2  (4u << 8)
 #define RCC_CFGR_PPRE1_DIV4  (5u << 8)
 #define RCC_CFGR_PPRE2_DIV2  (4u << 11)
@@ -71,6 +71,8 @@ static volatile uint32_t stm32_mock_dwt_cyccnt;
 #define RCC_APB2ENR_IOPAEN   (1u << 2)
 #define RCC_APB2ENR_IOPBEN   (1u << 3)
 #define RCC_APB2ENR_IOPCEN   (1u << 4)
+#define FLASH_ACR_LATENCY_0  0u
+#define FLASH_ACR_LATENCY_1  1u
 #define FLASH_ACR_LATENCY_2  2u
 #define FLASH_ACR_PRFTBE     (1u << 4)
 #define CORE_DEMCR_TRCENA    (1u << 24)

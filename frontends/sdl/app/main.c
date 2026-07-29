@@ -56,7 +56,7 @@ int main(int argc, char **argv)
     Uint64 last_counter;
     Uint64 next_frame_counter;
     Uint64 counter_frequency;
-    double cycle_fraction = 0.0;
+    double cycle_budget = 0.0;
     double cycles_per_second;
     const double frames_per_second = 60.0;
 
@@ -132,8 +132,6 @@ int main(int argc, char **argv)
         SDL_Event event;
         Uint64 now;
         double elapsed;
-        unsigned cycles_to_run = 0;
-        unsigned i;
 
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
@@ -162,17 +160,23 @@ int main(int argc, char **argv)
         elapsed = (double)(now - last_counter) / (double)counter_frequency;
         last_counter = now;
         if (running) {
-            cycle_fraction += elapsed * cycles_per_second;
-            cycles_to_run = (unsigned)cycle_fraction;
-            cycle_fraction -= cycles_to_run;
-            if (cycles_to_run > 100000) {
-                cycles_to_run = 100000;
-                cycle_fraction = 0;
+            cycle_budget += elapsed * cycles_per_second;
+            if (cycle_budget > 100000.0) {
+                cycle_budget = 100000.0;
             }
         }
-        for (i = 0; i < cycles_to_run &&
-                    !sim_mcu_stopped(circuit.board.mcu); ++i) {
-            sdl_circuit_step(&circuit);
+        while (cycle_budget >= 1.0 &&
+               !sim_mcu_stopped(circuit.board.mcu)) {
+            unsigned consumed = sdl_circuit_step(&circuit);
+            if (consumed == 0) {
+                cycle_budget = 0.0;
+                break;
+            }
+            /*
+             * 预算单位是PIC指令周期，而不是指令条数。GOTO、CALL以及真正
+             * 发生跳过的指令消耗两个周期，必须按返回值扣除。
+             */
+            cycle_budget -= consumed;
         }
 
         SDL_AtomicSet(&audio.frequency_hz,
