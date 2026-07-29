@@ -169,5 +169,6 @@ stm32-host-test:
 clean:
 	rm -rf $(BUILD_DIR)
 	$(MAKE) -C examples clean
+	$(MAKE) -C ports/stm32f103 clean
 
 -include $(DEPFILES)

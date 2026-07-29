@@ -1,4 +1,5 @@
 #include "board_config.h"
+#include "debug_uart.h"
 #include "firmware.h"
 #include "picemu/core/pic10_cpu.h"
 #include "picemu/platform/gpio_bridge.h"
@@ -8,34 +9,52 @@
 #include <stdint.h>
 
 enum {
-    STM32_CORE_HZ = 64000000u,
+    STM32_CORE_HZ = 128000000u,
+    STM32_APB2_HZ = 64000000u,
     PIC_OSCILLATOR_HZ = 4000000u,
     PIC_CYCLES_PER_SECOND = PIC_OSCILLATOR_HZ / 4u,
     STM32_TICKS_PER_PIC_CYCLE = STM32_CORE_HZ / PIC_CYCLES_PER_SECOND,
-    PIC_GPIO_COUNT = 4u
+    PIC_GPIO_COUNT = 4u,
+    GPIO_INPUT_POLL_CYCLES = 64u
 };
 
 static Pic10Cpu pic_cpu;
 static PicHardwareBridge gpio_bridge;
+static bool gp0_log_initialized;
+static bool gp0_last_level;
 
-static void clock_init_64mhz(void)
+static void clock_init(void)
 {
     RCC->CR |= RCC_CR_HSION;
     while ((RCC->CR & RCC_CR_HSIRDY) == 0) {
     }
+    debug_uart_puts("[boot] HSI ready\n");
 
     FLASH_REGS->ACR = FLASH_ACR_PRFTBE | FLASH_ACR_LATENCY_2;
+    RCC->CR |= RCC_CR_HSEON;
+    while ((RCC->CR & RCC_CR_HSERDY) == 0) {
+    }
+    debug_uart_puts("[boot] HSE ready\n");
     /*
-     * HSI/2 = 4MHz，PLL乘16得到64MHz；APB1设置为32MHz，
-     * 未超过STM32F103数据手册规定的36MHz上限。
+     * 此时USART1仍依赖8MHz APB2。先只配置PLL源和倍频，不提前设置
+     * APB2分频，否则“PLL locked”日志会暂时从115200降成57600波特。
      */
-    RCC->CFGR = RCC_CFGR_PLLMUL16 | RCC_CFGR_PPRE1_DIV2;
+    RCC->CFGR = RCC_CFGR_PLLSRC_HSE | RCC_CFGR_PLLMUL16;
     RCC->CR |= RCC_CR_PLLON;
     while ((RCC->CR & RCC_CR_PLLRDY) == 0) {
     }
+    debug_uart_puts("[boot] PLL locked\n");
+    debug_uart_flush();
+    /*
+     * 串口最后一个停止位发送完毕后再设置总线分频。随后立即切换SYSCLK，
+     * 并按照64MHz APB2重新配置USART1。
+     */
+    RCC->CFGR |= RCC_CFGR_PPRE1_DIV4 | RCC_CFGR_PPRE2_DIV2;
     RCC->CFGR |= RCC_CFGR_SW_PLL;
     while ((RCC->CFGR & (3u << 2)) != RCC_CFGR_SWS_PLL) {
     }
+    debug_uart_init(STM32_APB2_HZ);
+    debug_uart_puts("[boot] system clock 128 MHz (overclock)\n");
 }
 
 static void cycle_counter_init(void)
@@ -93,6 +112,13 @@ static void platform_write_pin(void *context, unsigned pin, bool high)
     physical_high = mapping->active_low ? !high : high;
     mapping->gpio->BSRR = physical_high
         ? (1u << mapping->pin) : (1u << (mapping->pin + 16u));
+
+    if (pin == 0u &&
+        (!gp0_log_initialized || gp0_last_level != high)) {
+        gp0_log_initialized = true;
+        gp0_last_level = high;
+        debug_uart_puts(high ? "[gpio] GP0=1\n" : "[gpio] GP0=0\n");
+    }
 }
 
 static bool platform_read_pin(void *context, unsigned pin)
@@ -120,26 +146,37 @@ static const PicPlatformOps STM32_PLATFORM = {
 
 int main(void)
 {
+    unsigned gpio_poll_cycles = 0;
     uint32_t next_deadline;
 
-    clock_init_64mhz();
+    debug_uart_init(8000000u);
+    debug_uart_puts("\n[boot] reset handler entered\n");
+    clock_init();
     cycle_counter_init();
+    debug_uart_puts("[boot] DWT cycle counter enabled\n");
 
     pic10_init(&pic_cpu, &pic_firmware_image, &PIC_DEVICE_PIC10F200);
     pic_hardware_bridge_init(&gpio_bridge, &pic_cpu, &STM32_PLATFORM);
+    debug_uart_puts("[boot] PIC10F200 initialized\n");
     next_deadline = DWT_CYCCNT;
+    pic_hardware_bridge_sync(&gpio_bridge);
 
     for (;;) {
         /*
-         * PIC10F200在4MHz下每秒有100万个指令周期。DWT以64MHz计数，
-         * 因此一个PIC周期对应64个STM32周期。两周期PIC指令会正确扣除
+         * PIC10F200在4MHz下每秒有100万个指令周期。DWT以128MHz计数，
+         * 因此一个PIC周期对应128个STM32周期。两周期PIC指令会正确扣除
          * 两倍时间。若STM32来得及，会等待到精确截止时间；若解释执行
          * 本身超过预算，则不再等待，以处理器能够达到的最高速度继续。
          */
         Pic10StepResult result;
-        pic_hardware_bridge_sync(&gpio_bridge);
         result = pic10_step(&pic_cpu);
-        pic_hardware_bridge_sync(&gpio_bridge);
+        gpio_poll_cycles += result.instruction_cycles;
+        if (result.gpio_changed ||
+            gpio_bridge.last_tris != pic_cpu.tris_gpio ||
+            gpio_poll_cycles >= GPIO_INPUT_POLL_CYCLES) {
+            pic_hardware_bridge_sync(&gpio_bridge);
+            gpio_poll_cycles = 0;
+        }
         next_deadline +=
             result.instruction_cycles * STM32_TICKS_PER_PIC_CYCLE;
         while ((int32_t)(DWT_CYCCNT - next_deadline) < 0) {

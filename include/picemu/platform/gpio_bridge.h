@@ -28,6 +28,7 @@ typedef struct {
     Pic10Cpu *cpu;
     const PicPlatformOps *ops;
     uint8_t last_tris;
+    uint8_t last_output;
     bool initialized;
 } PicHardwareBridge;
 

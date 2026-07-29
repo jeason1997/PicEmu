@@ -15,13 +15,13 @@ HOST_CC ?= gcc
 
 CPPFLAGS := -Iinclude -I$(PROJECT_ROOT)/include
 CFLAGS := -mcpu=cortex-m3 -mthumb -std=c11 -O3 -g3 \
-	-ffunction-sections -fdata-sections -Wall -Wextra -Wpedantic
+	-flto -ffunction-sections -fdata-sections -Wall -Wextra -Wpedantic
 CFLAGS += $(CFLAGS_EXTRA)
 LDFLAGS := -mcpu=cortex-m3 -mthumb -nostartfiles \
 	-Tstm32f103.ld -Wl,--gc-sections \
 	-Wl,-Map,$(TARGET).map --specs=nano.specs --specs=nosys.specs
 
-PORT_SOURCES := src/startup.c src/main.c
+PORT_SOURCES := src/startup.c src/main.c src/debug_uart.c
 CORE_SOURCES := \
 	$(PROJECT_ROOT)/src/core/pic_device.c \
 	$(PROJECT_ROOT)/src/core/pic10_cpu.c \
@@ -30,6 +30,7 @@ CORE_SOURCES := \
 OBJECTS := \
 	$(BUILD_DIR)/obj/port/startup.o \
 	$(BUILD_DIR)/obj/port/main.o \
+	$(BUILD_DIR)/obj/port/debug_uart.o \
 	$(BUILD_DIR)/obj/generated/firmware.o \
 	$(BUILD_DIR)/obj/core/pic_device.o \
 	$(BUILD_DIR)/obj/core/pic10_cpu.o \
@@ -84,7 +85,7 @@ $(BUILD_DIR)/obj/core/gpio_bridge.o: $(PROJECT_ROOT)/src/platform/gpio_bridge.c
 host-check: $(GENERATED_FIRMWARE)
 	$(HOST_CC) $(CPPFLAGS) -DSTM32_HOST_CHECK -std=c11 \
 		-Wall -Wextra -Wpedantic -fsyntax-only \
-		src/startup.c src/main.c $(GENERATED_FIRMWARE) \
+		src/startup.c src/main.c src/debug_uart.c $(GENERATED_FIRMWARE) \
 		$(PROJECT_ROOT)/src/core/pic_device.c \
 		$(PROJECT_ROOT)/src/core/pic10_cpu.c \
 		$(PROJECT_ROOT)/src/platform/gpio_bridge.c
