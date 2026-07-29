@@ -65,6 +65,9 @@ typedef struct {
     SimDevice base;
     bool active;
     uint64_t transitions;
+    uint64_t cycles_since_edge;
+    uint64_t half_period_cycles;
+    double frequency_hz;
 } SimBuzzer;
 
 void sim_buzzer_init(SimBuzzer *buzzer, const char *name);

@@ -232,6 +232,20 @@ static void test_extensible_board_devices(void)
     CHECK((pic10f200_gpio_value(&cpu) & (1u << 3)) == 0);
 }
 
+static void test_passive_buzzer_frequency(void)
+{
+    SimBuzzer buzzer;
+
+    sim_buzzer_init(&buzzer, "test buzzer");
+    buzzer.base.ops->pin_changed(&buzzer.base, 0, SIM_LEVEL_HIGH);
+    buzzer.base.ops->tick(&buzzer.base, 500);
+    buzzer.base.ops->pin_changed(&buzzer.base, 0, SIM_LEVEL_LOW);
+
+    /* 1MHz周期下，500周期半波对应1000Hz。 */
+    CHECK(buzzer.frequency_hz > 999.0 && buzzer.frequency_hz < 1001.0);
+    CHECK(buzzer.half_period_cycles == 500);
+}
+
 int main(void)
 {
     test_addwf_flags();
@@ -245,6 +259,7 @@ int main(void)
     test_status_read_only_bits();
     test_disassembler();
     test_extensible_board_devices();
+    test_passive_buzzer_frequency();
 
     if (failures != 0) {
         fprintf(stderr, "CPU单元测试失败：%u项\n", failures);

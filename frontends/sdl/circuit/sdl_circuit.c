@@ -256,3 +256,19 @@ bool sdl_circuit_buzzer_active(const SdlCircuit *circuit)
     }
     return false;
 }
+
+double sdl_circuit_buzzer_frequency(const SdlCircuit *circuit)
+{
+    unsigned i;
+    for (i = 0; i < circuit->part_count; ++i) {
+        if (circuit->parts[i].type == SDL_PART_BUZZER) {
+            const SimBuzzer *buzzer = &circuit->parts[i].device.buzzer;
+            if (buzzer->frequency_hz > 0.0) return buzzer->frequency_hz;
+            /*
+             * 兼容旧的有源蜂鸣器示例：引脚保持高电平时使用固定2kHz。
+             */
+            if (buzzer->active) return 2000.0;
+        }
+    }
+    return 0.0;
+}

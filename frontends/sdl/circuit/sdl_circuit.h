@@ -39,5 +39,6 @@ void sdl_circuit_render(SDL_Renderer *renderer,
                         const SdlCircuit *circuit, bool running);
 void sdl_circuit_mouse(SdlCircuit *circuit, int x, int y, bool pressed);
 bool sdl_circuit_buzzer_active(const SdlCircuit *circuit);
+double sdl_circuit_buzzer_frequency(const SdlCircuit *circuit);
 
 #endif

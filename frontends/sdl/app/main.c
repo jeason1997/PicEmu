@@ -15,9 +15,8 @@ enum {
 };
 
 typedef struct {
-    SDL_atomic_t enabled;
+    SDL_atomic_t frequency_hz;
     float phase;
-    float phase_step;
 } AudioState;
 
 static void audio_callback(void *userdata, Uint8 *stream, int length)
@@ -26,12 +25,14 @@ static void audio_callback(void *userdata, Uint8 *stream, int length)
     float *samples = (float *)stream;
     int count = length / (int)sizeof(float);
     int i;
-    bool enabled = SDL_AtomicGet(&audio->enabled) != 0;
+    int frequency_hz = SDL_AtomicGet(&audio->frequency_hz);
+    float phase_step =
+        6.28318530718f * (float)frequency_hz / 48000.0f;
 
     for (i = 0; i < count; ++i) {
-        samples[i] = enabled
+        samples[i] = frequency_hz > 0
             ? (sinf(audio->phase) >= 0.0f ? 0.18f : -0.18f) : 0.0f;
-        audio->phase += audio->phase_step;
+        audio->phase += phase_step;
         if (audio->phase >= 6.28318530718f) {
             audio->phase -= 6.28318530718f;
         }
@@ -118,7 +119,6 @@ int main(int argc, char **argv)
     requested.samples = 512;
     requested.callback = audio_callback;
     requested.userdata = &audio;
-    audio.phase_step = 6.28318530718f * 2000.0f / 48000.0f;
     audio_device = SDL_OpenAudioDevice(NULL, 0, &requested, NULL, 0);
     if (audio_device != 0) SDL_PauseAudioDevice(audio_device, 0);
 
@@ -171,8 +171,8 @@ int main(int argc, char **argv)
             sdl_circuit_step(&circuit);
         }
 
-        SDL_AtomicSet(&audio.enabled,
-                      sdl_circuit_buzzer_active(&circuit) ? 1 : 0);
+        SDL_AtomicSet(&audio.frequency_hz,
+                      (int)(sdl_circuit_buzzer_frequency(&circuit) + 0.5));
         sdl_circuit_render(renderer, &circuit, running);
 
         next_frame_counter +=

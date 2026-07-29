@@ -12,6 +12,7 @@ make test       # 单元测试 + XC8真实固件端到端测试
 - `blink`：检查GP0、GP1交替输出；
 - `button`：向GP3注入按键事件，检查GP0、GP1反转；
 - `buzzer`：向GP3注入按键事件，检查GP2产生约50ms脉冲。
+- `fur_elise`：检查GP2持续产生音乐方波边沿。
 
 ## 已实现
 
