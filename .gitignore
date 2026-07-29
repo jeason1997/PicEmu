@@ -1,0 +1,5 @@
+# GCC 模拟器构建产物
+/build/
+
+# XC8 测试固件及其中间文件
+/test/build/
