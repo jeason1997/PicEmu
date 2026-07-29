@@ -58,3 +58,20 @@ HEX加载器 / 嵌入式C数组
 5. 增加该型号独立的示例固件与单元测试。
 
 目前设备查找器接受PIC10F200和PIC10F202。PIC10F204/206仍未支持。
+
+## 仿真设备头文件
+
+`include/picemu/sim/device.h` 只定义所有设备共用的引脚电平、
+`SimDevice` 和 `SimDeviceOps`，不包含任何具体器件。
+
+每种器件拥有独立公开接口：
+
+```text
+include/picemu/sim/devices/
+├── led.h
+├── button.h
+└── buzzer.h
+```
+
+设备实现只包含自己的头文件。使用者也应只包含实际需要的设备头文件；
+新增屏幕或电机等器件时，不需要修改基础 `device.h`。

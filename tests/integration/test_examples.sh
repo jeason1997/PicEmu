@@ -31,10 +31,9 @@ BUZZER=$(run_example buzzer 120000 events.txt)
 printf '%s\n' "$BUZZER" | grep -q 'GP2 -> 1'
 printf '%s\n' "$BUZZER" | grep -q 'GP2 -> 0'
 
-PLAYMUSIC=$("$PICEMU" examples/playmusic/build/firmware.hex \
-    --device PIC10F202 --cycles 10000)
-printf '%s\n' "$PLAYMUSIC" | grep -q 'PIC10F202'
+PLAYMUSIC=$(run_example playmusic 10000)
+printf '%s\n' "$PLAYMUSIC" | grep -q 'PIC10F200'
 printf '%s\n' "$PLAYMUSIC" | grep -q 'GP2 -> 1'
 printf '%s\n' "$PLAYMUSIC" | grep -q 'GP2 -> 0'
 
-echo "示例集成测试通过：blink、button、buzzer、playmusic（PIC10F202）。"
+echo "示例集成测试通过：blink、button、buzzer、playmusic（PIC10F200）。"

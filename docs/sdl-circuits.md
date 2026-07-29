@@ -70,7 +70,7 @@ make firmware
 - [`examples/blink/`](../examples/blink/)
 - [`examples/button/`](../examples/button/)
 - [`examples/buzzer/`](../examples/buzzer/)
-- [`examples/playmusic/`](../examples/playmusic/)：PIC10F202 软件方波播放较长的《致爱丽丝》主旋律
+- [`examples/playmusic/`](../examples/playmusic/)：PIC10F200 软件方波播放简单旋律
 
 `buzzer`既支持固定高电平驱动的有源蜂鸣器，也会测量GPIO方波的边沿周期。
 `playmusic`示例利用GP2软件翻转产生不同频率，SDL音频会按测得频率发声。

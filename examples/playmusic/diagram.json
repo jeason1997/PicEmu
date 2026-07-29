@@ -2,7 +2,7 @@
   "version": 1,
   "firmware": "examples/playmusic/build/firmware.hex",
   "parts": [
-    { "id": "mcu", "type": "pic10f202", "left": 330, "top": 150 },
+    { "id": "mcu", "type": "pic10f200", "left": 330, "top": 150 },
     { "id": "speaker", "type": "buzzer", "left": 800, "top": 320 }
   ],
   "connections": [

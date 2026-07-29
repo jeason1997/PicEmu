@@ -1,4 +1,4 @@
-#include "picemu/sim/device.h"
+#include "picemu/sim/devices/button.h"
 
 #include <string.h>
 

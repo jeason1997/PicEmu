@@ -2,8 +2,10 @@
 #define SDL_PARTS_H
 
 #include "picemu/sim/circuit_config.h"
-#include "picemu/sim/device.h"
 #include "picemu/core/pic_device.h"
+#include "picemu/sim/devices/led.h"
+#include "picemu/sim/devices/button.h"
+#include "picemu/sim/devices/buzzer.h"
 
 #include <SDL2/SDL.h>
 

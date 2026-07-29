@@ -1,7 +1,6 @@
 #ifndef SIM_DEVICE_H
 #define SIM_DEVICE_H
 
-#include <stdbool.h>
 #include <stdint.h>
 
 #define SIM_DEVICE_MAX_PINS 8u
@@ -38,38 +37,5 @@ void sim_device_init(SimDevice *device, const char *name,
                      const SimDeviceOps *ops, void *state,
                      unsigned pin_count);
 void sim_device_set_drive(SimDevice *device, unsigned pin, SimLevel level);
-
-typedef struct {
-    SimDevice base;
-    bool lit;
-    uint8_t red;
-    uint8_t green;
-    uint8_t blue;
-    bool active_high;
-} SimLed;
-
-void sim_led_init(SimLed *led, const char *name,
-                  uint8_t red, uint8_t green, uint8_t blue,
-                  bool active_high);
-
-typedef struct {
-    SimDevice base;
-    bool pressed;
-    bool active_low;
-} SimButton;
-
-void sim_button_init(SimButton *button, const char *name, bool active_low);
-void sim_button_set_pressed(SimButton *button, bool pressed);
-
-typedef struct {
-    SimDevice base;
-    bool active;
-    uint64_t transitions;
-    uint64_t cycles_since_edge;
-    uint64_t half_period_cycles;
-    double frequency_hz;
-} SimBuzzer;
-
-void sim_buzzer_init(SimBuzzer *buzzer, const char *name);
 
 #endif

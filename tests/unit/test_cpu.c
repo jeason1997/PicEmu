@@ -2,6 +2,9 @@
 #include "picemu/core/pic10_cpu.h"
 #include "picemu/sim/board.h"
 #include "picemu/sim/device.h"
+#include "picemu/sim/devices/led.h"
+#include "picemu/sim/devices/button.h"
+#include "picemu/sim/devices/buzzer.h"
 
 #include <stdio.h>
 #include <stdlib.h>
