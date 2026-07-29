@@ -81,7 +81,7 @@ SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
 
 .PHONY: all clean firmware example-firmware run test unit-test sdl-part-test integration-test \
-	sdl run-sdl tools
+	sdl run-sdl tools stm32 stm32-host-check stm32-host-test
 
 all: $(TARGET)
 
@@ -156,6 +156,15 @@ integration-test: all firmware
 	sh tests/integration/test_examples.sh "$(abspath $(TARGET))"
 
 test: unit-test sdl-part-test integration-test
+
+stm32:
+	$(MAKE) -C ports/stm32f103
+
+stm32-host-check:
+	$(MAKE) -C ports/stm32f103 host-check
+
+stm32-host-test:
+	$(MAKE) -C ports/stm32f103 host-test
 
 clean:
 	rm -rf $(BUILD_DIR)
