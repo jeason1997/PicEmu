@@ -1,5 +1,7 @@
 #include "disassembler.h"
 #include "pic10f200.h"
+#include "sim_board.h"
+#include "sim_device.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -197,6 +199,39 @@ static void test_disassembler(void)
     CHECK(strcmp(text, "GOTO 0x017") == 0);
 }
 
+static void test_extensible_board_devices(void)
+{
+    HexImage image = blank_image(false);
+    Pic10F200 cpu;
+    SimBoard board;
+    SimLed led;
+    SimButton button;
+    int led_net;
+    int button_net;
+
+    image.program[0] = 0x506; /* BSF GPIO,0 */
+    pic10f200_init(&cpu, &image);
+    cpu.tris_gpio = 0x0E;     /* GP0输出，GP1~GP3输入 */
+
+    sim_board_init(&board, &cpu);
+    sim_led_init(&led, "测试LED", 255, 0, 0, true);
+    sim_button_init(&button, "测试按键", true);
+    led_net = sim_board_add_net(&board, "LED_NET");
+    button_net = sim_board_add_net(&board, "BUTTON_NET");
+    CHECK(sim_board_connect_pic(&board, led_net, 0));
+    CHECK(sim_board_connect_device(&board, led_net, &led.base, 0));
+    CHECK(sim_board_connect_pic(&board, button_net, 3));
+    CHECK(sim_board_connect_device(&board, button_net, &button.base, 0));
+
+    sim_board_step(&board);
+    CHECK(led.lit);
+    CHECK((pic10f200_gpio_value(&cpu) & (1u << 3)) != 0);
+
+    sim_button_set_pressed(&button, true);
+    sim_board_resolve(&board);
+    CHECK((pic10f200_gpio_value(&cpu) & (1u << 3)) == 0);
+}
+
 int main(void)
 {
     test_addwf_flags();
@@ -209,6 +244,7 @@ int main(void)
     test_external_t0cki_and_pin_wakeup();
     test_status_read_only_bits();
     test_disassembler();
+    test_extensible_board_devices();
 
     if (failures != 0) {
         fprintf(stderr, "CPU单元测试失败：%u项\n", failures);

@@ -201,6 +201,7 @@ void pic10f200_reset(Pic10F200 *cpu, Pic10ResetReason reason)
 void pic10f200_init(Pic10F200 *cpu, const HexImage *image)
 {
     memset(cpu, 0, sizeof(*cpu));
+    cpu->device = &PIC_DEVICE_PIC10F200;
     memcpy(cpu->program, image->program, sizeof(cpu->program));
     cpu->config_word = image->config_present ? image->config_word : 0x0FFFu;
     cpu->watchdog_enabled = BIT(cpu->config_word, 2) != 0;

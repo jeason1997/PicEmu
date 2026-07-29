@@ -1,0 +1,43 @@
+#ifndef SDL_CIRCUIT_H
+#define SDL_CIRCUIT_H
+
+#include "circuit_config.h"
+#include "hex_loader.h"
+#include "pic10f200.h"
+#include "sdl_parts.h"
+#include "sim_board.h"
+
+#include <SDL2/SDL.h>
+
+#include <stdbool.h>
+#include <stddef.h>
+
+typedef struct {
+    unsigned part_a;
+    unsigned part_b;
+    char pin_a[32];
+    char pin_b[32];
+    SDL_Color color;
+    int net;
+} SdlWire;
+
+typedef struct {
+    Pic10F200 cpu;
+    SimBoard board;
+    SdlPart parts[CIRCUIT_MAX_PARTS];
+    unsigned part_count;
+    SdlWire wires[CIRCUIT_MAX_CONNECTIONS];
+    unsigned wire_count;
+} SdlCircuit;
+
+bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
+                      const HexImage *image, char *error,
+                      size_t error_size);
+void sdl_circuit_reset(SdlCircuit *circuit);
+void sdl_circuit_step(SdlCircuit *circuit);
+void sdl_circuit_render(SDL_Renderer *renderer,
+                        const SdlCircuit *circuit, bool running);
+void sdl_circuit_mouse(SdlCircuit *circuit, int x, int y, bool pressed);
+bool sdl_circuit_buzzer_active(const SdlCircuit *circuit);
+
+#endif

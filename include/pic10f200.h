@@ -2,6 +2,7 @@
 #define PIC10F200_H
 
 #include "hex_loader.h"
+#include "pic_device.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -34,6 +35,7 @@ typedef enum {
 } Pic10ResetReason;
 
 typedef struct {
+    const PicDeviceDescription *device;
     uint16_t program[PIC10F200_PROGRAM_WORDS];
 
     /*

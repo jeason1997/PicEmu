@@ -1,64 +1,53 @@
 #!/bin/sh
 #
-# blink.hex 端到端测试：
-#   XC8 生成 HEX -> picemu 加载 HEX -> 检查 GP0 翻转结果。
-#
-# 此脚本既可由 test/Makefile 调用，也可以手动执行：
-#   sh test/test_blink.sh ../build/picemu build/blink.hex
+# 按键固件端到端测试：
+# XC8生成HEX -> 注入GP3按键事件 -> 验证两颗LED反转及蜂鸣器脉冲。
 
 set -eu
 
 PICEMU=${1:-../build/picemu}
 FIRMWARE=${2:-build/blink.hex}
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-OUTPUT=$("$PICEMU" "$FIRMWARE" --cycles 3500000)
+OUTPUT=$("$PICEMU" "$FIRMWARE" --cycles 120000 \
+    --events "$SCRIPT_DIR/button_events.txt")
 printf '%s\n' "$OUTPUT"
 
-# 模拟器只打印真正发生电平变化的引脚。这里不依赖“周期”两个中文字，
-# 避免不同 shell locale 影响测试，只提取方括号内的数字以及 GP0 电平。
-EVENTS=$(printf '%s\n' "$OUTPUT" |
-    sed -n 's/^\[[^0-9]*\([0-9][0-9]*\)\] GP0 -> \([01]\)$/\1 \2/p')
-
-printf '%s\n' "$EVENTS" | awk '
-BEGIN {
-    expected[1] = 1
-    expected[2] = 0
-    expected[3] = 1
-    expected[4] = 0
+# 初始LED状态应为GP0=1。按键按下并经过20ms消抖后：
+# GP0变0、GP1变1、GP2变1；约50ms后GP2恢复0。
+printf '%s\n' "$OUTPUT" | awk '
+/\] GP0 -> 1$/ { initial_led1 = 1 }
+/\] GP0 -> 0$/ { led1_inverted = 1 }
+/\] GP1 -> 1$/ { led2_inverted = 1 }
+/\] GP2 -> 1$/ {
+    buzzer_on = 1
+    line = $0
+    sub(/^\[[^0-9]*/, "", line)
+    sub(/\].*$/, "", line)
+    buzzer_on_cycle = line + 0
 }
-{
-    count++
-    cycle[count] = $1
-    level[count] = $2
+/\] GP2 -> 0$/ {
+    buzzer_off = 1
+    line = $0
+    sub(/^\[[^0-9]*/, "", line)
+    sub(/\].*$/, "", line)
+    buzzer_off_cycle = line + 0
 }
 END {
-    if (count < 4) {
-        print "测试失败：没有观察到至少 4 次 GP0 翻转" > "/dev/stderr"
+    if (!initial_led1 || !led1_inverted || !led2_inverted) {
+        print "测试失败：按键后两颗LED没有正确反转" > "/dev/stderr"
         exit 1
     }
-
-    for (i = 1; i <= 4; ++i) {
-        if (level[i] != expected[i]) {
-            print "测试失败：GP0 电平序列不是 1,0,1,0" > "/dev/stderr"
-            exit 1
-        }
-    }
-
-    interval1 = cycle[3] - cycle[2]
-    interval2 = cycle[4] - cycle[3]
-    difference = interval1 - interval2
-    if (difference < 0) {
-        difference = -difference
-    }
-
-    # 两段 delay(50000) 理应基本相等。函数入口、循环跳转和连续 GPIO
-    # 位操作可能造成几个指令周期的固定差异，因此允许最多 8 个周期。
-    if (difference > 8) {
-        print "测试失败：高、低电平延时间隔不一致" > "/dev/stderr"
+    if (!buzzer_on || !buzzer_off) {
+        print "测试失败：没有观察到完整蜂鸣器脉冲" > "/dev/stderr"
         exit 1
     }
-
-    printf "测试通过：GP0 按 1,0,1,0 翻转，稳态间隔为 %d/%d 个周期。\n",
-           interval1, interval2
+    duration = buzzer_off_cycle - buzzer_on_cycle
+    if (duration < 49980 || duration > 50020) {
+        printf "测试失败：蜂鸣器持续%d周期，不是约50ms\n", duration > "/dev/stderr"
+        exit 1
+    }
+    printf "测试通过：按键后LED1/LED2反转，蜂鸣器持续%d周期。\n",
+           duration
 }
 '

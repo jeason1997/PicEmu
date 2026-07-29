@@ -1,7 +1,9 @@
 # PIC10F200 教学模拟器
 
 这是一个使用 C11 编写的 PIC10F200 模拟器，可以在 Linux 下通过 GCC
-编译，加载 MPLAB XC8 生成的 Intel HEX 固件并执行。
+编译，加载 MPLAB XC8 生成的 Intel HEX 固件并执行。除了命令行调试器，
+项目还提供可交互的 SDL2 虚拟实验板，以及供 STM32 等嵌入式平台使用的
+GPIO 映射接口。
 
 项目强调结构清晰和中文注释，适合作为 MCU 指令集模拟器的入门示例，
 不以替代 MPLAB SIM 为目标。
@@ -106,17 +108,37 @@ PicEmu/
 ├── include/
 │   ├── hex_loader.h       Intel HEX 加载器接口
 │   ├── pic10f200.h        PIC10F200 模拟器接口和状态定义
+│   ├── pic_device.h       芯片型号、封装引脚和能力描述
+│   ├── sim_board.h        导线网络和虚拟实验板
+│   ├── sim_device.h       LED、按键、蜂鸣器等设备接口
+│   ├── pic_platform.h     映射真实硬件GPIO的平台接口
 │   ├── disassembler.h     12位指令反汇编接口
 │   └── vcd_writer.h       GTKWave波形输出接口
 ├── src/
 │   ├── hex_loader.c       Intel HEX 解析与校验
 │   ├── pic10f200.c        CPU、RAM、栈、复位和外设
+│   ├── pic_device.c       PIC10F200设备描述及型号查找
+│   ├── sim_board.c        引脚连线、电平解析和仿真调度
+│   ├── sim_device.c       可扩展外围设备公共接口
+│   ├── sim_led.c          LED电气模型
+│   ├── sim_button.c       按键电气模型
+│   ├── sim_buzzer.c       蜂鸣器电气模型
+│   ├── circuit_config.c   JSON电路配置解析器
+│   ├── pic_platform.c     虚拟引脚到平台GPIO的桥接
 │   ├── disassembler.c     指令反汇编
 │   ├── vcd_writer.c       VCD波形生成
 │   └── main.c             命令行、事件和执行循环
+├── frontends/sdl/
+│   ├── main.c             仅负责窗口、输入和仿真时钟
+│   ├── sdl_circuit.c      从配置装配和绘制完整电路
+│   ├── sdl_part_*.c       每一种器件的独立可视模块
+│   └── sdl_text.c         无外部字体依赖的位图文字
+├── circuits/blink.json    按键、双LED和蜂鸣器电路配置
+├── ports/stm32f103/       STM32F103移植说明和接口约定
+├── tools/hex2c.c          将HEX转换成可烧录的C常量
 ├── test/
 │   ├── Makefile           测试固件编译、运行和验证
-│   ├── blink.c            XC8 闪灯示例
+│   ├── blink.c            XC8按键、双LED和蜂鸣器示例
 │   ├── pin_events.example 外部引脚事件示例
 │   ├── test_blink.sh      端到端自动测试
 │   └── unit/test_cpu.c    CPU和外设单元测试
@@ -147,6 +169,140 @@ build/obj/main.o
 build/obj/hex_loader.o
 build/obj/pic10f200.o
 ```
+
+如需构建 SDL2 前端，先安装开发包：
+
+```sh
+sudo apt install libsdl2-dev
+make sdl
+```
+
+生成 `build/picemu-sdl`。
+
+## SDL2 可交互实验板
+
+运行配置好的演示电路：
+
+```sh
+make run-sdl
+```
+
+也可以明确指定配置文件；命令行的第二个参数可以覆盖 JSON 中的固件：
+
+```sh
+./build/picemu-sdl circuits/blink.json
+./build/picemu-sdl circuits/blink.json another.hex
+```
+
+### JSON电路配置
+
+配置采用类似 Wokwi `diagram.json` 的数据结构。目前实现
+`version`、`firmware`、`parts` 和 `connections`：
+
+```json
+{
+  "version": 1,
+  "firmware": "test/build/blink.hex",
+  "parts": [
+    {
+      "id": "mcu",
+      "type": "pic10f200",
+      "left": 330,
+      "top": 150
+    },
+    {
+      "id": "led0",
+      "type": "led",
+      "left": 150,
+      "top": 200,
+      "attrs": { "color": "red" }
+    }
+  ],
+  "connections": [
+    ["mcu:GP0", "led0:A", "red", []]
+  ]
+}
+```
+
+每个器件必须有唯一的 `id` 和已注册的 `type`。`left`、`top` 是
+960×600 逻辑画布中的坐标。连接端点写成 `器件ID:引脚名`。当前支持：
+
+| type | 可连接引脚 | attrs |
+|---|---|---|
+| `pic10f200` | `GP0`、`GP1`、`GP2`、`GP3`；`VDD/VSS`仅显示 | 无 |
+| `led` | `A`或`IN` | `color`: red/green/blue/yellow |
+| `pushbutton` | `1`或`OUT` | `activeLow`: true/false |
+| `buzzer` | `1`或`IN` | 无 |
+
+`connections` 的第三项是导线颜色，第四项为以后兼容走线指令预留，
+目前会读取并忽略。配置解析器也会跳过未知对象字段，方便后续演进。
+
+默认演示电路的连线为：
+
+| PIC引脚 | 虚拟设备 | 行为 |
+|---|---|---|
+| GP0 | 红色LED | 高电平点亮 |
+| GP1 | 绿色LED | 高电平点亮 |
+| GP2 | 蜂鸣器 | 高电平发出约2 kHz声音 |
+| GP3 | 按键 | 松开为高电平，按下为低电平 |
+
+操作方式：
+
+- 拖动窗口边缘可等比例缩放实验板，最小尺寸为 480×300；
+- 鼠标按住板上的按键，向 GP3 输入低电平；
+- `Space` 暂停或继续；
+- 暂停时按 `N` 执行一条指令；
+- `R` 复位芯片；
+- `Esc` 退出。
+
+前端没有把电路或设备行为写进主程序。`SimBoard` 用网络连接芯片引脚和
+`SimDevice`；各器件的电气模型、SDL外观和JSON注册逻辑彼此分开。以后
+增加屏幕、数码管或继电器时，增加对应模型与 `sdl_part_*.c`，再注册一种
+`type` 即可，不需要修改 PIC10F200 指令执行器或 SDL 主循环。
+
+## 移植到 STM32F103
+
+模拟核心、设备描述和平台桥接代码只依赖标准 C，不依赖 SDL，也不动态
+分配内存。桌面界面与核心分离，因此可以把这些文件加入 STM32 工程：
+
+```text
+src/hex_loader.c
+src/pic_device.c
+src/pic10f200.c
+src/pic_platform.c
+```
+
+在 STM32 端实现 `PicPlatformOps` 的设置方向、写引脚、读引脚和读取时间
+四个回调，即可把 GP0～GP3 映射到真实 GPIO。完整的回调示例、调度建议和
+注意事项见 `ports/stm32f103/README.md`。
+
+嵌入式设备通常没有文件系统，可在 PC 上把 HEX 转成 C 数组后随固件烧录：
+
+```sh
+make tools
+./build/hex2c test/build/blink.hex blink > blink_firmware.c
+```
+
+生成文件提供 `const HexImage blink_image`。STM32 启动时可以直接把它交给
+`pic10f200_init()`，无需在板上解析文件。
+
+## 为其他 PIC 型号预留的结构
+
+目前只实现 PIC10F200，但型号参数没有散落在 SDL 界面或虚拟设备中。
+`PicDeviceDescription` 集中描述程序空间、RAM、栈、GPIO 数量、物理脚号
+和引脚能力；当前实例为 `PIC_DEVICE_PIC10F200`。
+
+将来增加 PIC10F202、PIC10F204 或 PIC10F206 时，建议按以下顺序扩展：
+
+1. 添加对应的设备描述；
+2. 对共用的 Baseline CPU 指令复用现有执行器；
+3. 按型号挂接更大的程序空间、比较器等差异外设；
+4. 让前端按设备描述生成引脚，而不是在前端判断型号；
+5. 为新型号加入独立 HEX 和单元测试。
+
+这次没有声称支持这些型号：设备查找器目前只接受 PIC10F200。预留层的
+目的，是让以后增加型号时不必重写 SDL 设备、连线系统或 STM32 GPIO
+桥接层。
 
 运行已有固件：
 
@@ -290,7 +446,8 @@ make test
 
 1. 不依赖XC8的CPU单元测试，覆盖算术标志、跳过指令、CALL/RETLW、
    间接寻址、Timer0写入抑制、WDT/Sleep、T0CKI和反汇编。
-2. 使用XC8重新编译`blink.c`，加载真实HEX并检查GPIO翻转和周期。
+2. 使用XC8重新编译`blink.c`，注入GP3按键事件，检查两颗LED反转和
+   50ms蜂鸣器脉冲。
 
 也可以只执行快速单元测试：
 
@@ -305,7 +462,7 @@ test/blink.c
     -> XC8
 test/build/blink.hex
     -> build/picemu
-检查 GP0 是否按 1,0,1,0 翻转，并比较高低电平持续周期
+注入GP3按下/松开事件，检查GP0/GP1反转和GP2蜂鸣器脉冲
 ```
 
 也可以在 `test/` 中分别执行：
@@ -348,6 +505,9 @@ test/build/
 - MPLAB/XC8 放在字节地址 `0x1FFE` 的配置字。
 - 反汇编、逐指令跟踪、地址断点、状态/RAM转储。
 - 外部引脚事件文件和VCD波形输出。
+- SDL2交互式实验板、可扩展设备和连线网络。
+- 面向STM32等平台的真实GPIO桥接接口及HEX转C工具。
+- 集中的芯片型号与引脚能力描述，为后续型号预留扩展点。
 - CPU单元测试和XC8固件端到端测试。
 
 ## 当前限制
