@@ -15,7 +15,7 @@ C11 编写，可直接加载 MPLAB XC8 生成的 Intel HEX 固件；同一套 PI
 |---|---|
 | 命令行模拟器 | 执行 HEX、跟踪指令、反汇编、断点、寄存器/RAM 转储、GPIO 事件和 VCD 波形 |
 | SDL 电路仿真器 | 根据 `diagram.json` 装配 PIC、LED、按键和蜂鸣器，实时交互和播放声音 |
-| Web 电路实验台 | 拖放器件、连线、多选编辑、加载/保存电路、运行/暂停/单步、查看寄存器、RAM 和程序 |
+| Web 电路实验台 | 拖放器件、连线、多选编辑、加载/保存电路、运行/暂停/单步、查看寄存器、RAM、程序和 SPI Flash |
 | STM32F103 端口 | 把虚拟 PIC GPIO 映射到真实 STM32 引脚，在裸机环境实时运行 PIC 固件 |
 | Tang Nano 1K FPGA | 用 Verilog 实现 PIC10F200 核心，固件随位流保存并从片上 BSRAM 取指 |
 
@@ -72,6 +72,7 @@ STM32F103 和 FPGA 的构建、烧录依赖各自工具链，参见：
 | `buzzer` | 按键触发蜂鸣器 |
 | `led_chaser` | GP0～GP2 三路流水灯 |
 | `playmusic` | 用软件方波播放一段简单旋律 |
+| `spi_flash` | PIC10F200 用软件 SPI 读取 W25Q，并校验 `PICEMU!` |
 
 每个示例拥有独立的 `main.c`、`Makefile`、`diagram.json` 和 `build/`。
 详细构建方式和平台兼容性见[示例说明](docs/examples.md)。
@@ -89,7 +90,6 @@ PicEmu/
 ├── ports/stm32f103/        STM32F103 裸机端口
 ├── fpga/                   Tang Nano 1K Verilog 实现
 ├── tests/                  单元、SDL、集成和 Web 后端测试
-├── tools/                  固件转换工具
 └── docs/                   分主题文档
 ```
 
@@ -111,7 +111,8 @@ PicEmu/
 PicEmu 的目标是数字逻辑和固件行为仿真，不是 SPICE：
 
 - 不模拟电源电压、温度、模拟波形或器件损坏；
-- Web/SDL 当前内置 PIC、LED、按键和蜂鸣器；
+- Web 当前还内置可配置容量和实时查看数据的 W25Q SPI Flash；SDL 暂不显示
+  W25Q；
 - 没有 ELF/DWARF 源码级调试；
 - PIC10F204/206 比较器、更多 PIC 系列和复杂外设仍待扩展；
 - FPGA 核心目前只实现运行已有验证示例所需的 PIC10F200 指令和资源。

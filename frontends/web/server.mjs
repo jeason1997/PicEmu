@@ -199,6 +199,14 @@ async function api(request, response, url) {
       const addresses = Array.isArray(value.addresses)
         ? value.addresses.join(",") : "";
       fields = ["breakpoints", addresses];
+    } else if (command === "w25_config") {
+      fields = [
+        "w25_config", value.capacity || 2097152,
+        value.initialData || "",
+        value.csPin, value.clockPin, value.mosiPin, value.misoPin
+      ];
+    } else if (command === "w25_read") {
+      fields = ["w25_read", value.offset || 0, value.count || 256];
     } else if (["reset", "state", "flash"].includes(command)) {
       fields = [command];
     } else {

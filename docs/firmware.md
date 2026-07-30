@@ -39,14 +39,12 @@ make -C examples/blink
 
 所有示例及用途见[示例说明](examples.md)。
 
-## 嵌入固件
+## 嵌入式平台
 
-没有文件系统的平台可先把HEX转换成C常量：
+STM32F103端口会在自身构建过程中自动编译私有的HEX转C工具，把所选固件
+生成成`const HexImage pic_firmware_image`并链接进STM32程序。该工具属于
+STM32构建实现，位于`ports/stm32f103/tools/`，普通桌面构建不需要它。
 
-```sh
-make tools
-./build/hex2c examples/blink/build/firmware.hex blink > blink_firmware.c
-```
-
-生成文件提供 `const HexImage blink_image`，可以直接传给
-`pic10_init()`，并同时传入目标型号的 `PicDeviceDescription`。
+FPGA使用另一条独立流程，把HEX转换成12位MEM文件并作为BSRAM初值写入
+位流。两种方式详见[STM32F103端口](ports/stm32f103.md)和
+[Tang Nano 1K FPGA](../fpga/README.md)。

@@ -53,6 +53,11 @@ Windows PowerShell 可以直接启动 Web、STM32 或 FPGA 流程：
 | `buzzer` | GP3 触发 GP2 脉冲 | 按键、蜂鸣器 | 外部输入和声音 |
 | `led_chaser` | GP0～GP2 依次点亮 | 红绿蓝三个 LED | 多路 GPIO 输出 |
 | `playmusic` | GP2 产生不同频率方波 | 无源蜂鸣器 | 软件音调和完整程序空间测试 |
+| `spi_flash` | GP0～GP3 软件模拟 SPI 并读取数据 | W25Q、绿色结果 LED | SPI Mode 0 和外部存储器读取 |
+
+`spi_flash` 默认创建一颗 2 MiB 的 W25Q16，地址 0 的初始内容是 ASCII
+`PICEMU!`。固件通过 `0x03` 读取命令逐字节校验，成功后点亮绿色 LED。
+PIC10F200 没有硬件 SPI，这个通信过程完全由固件翻转 GPIO 完成。
 
 ## 平台说明
 

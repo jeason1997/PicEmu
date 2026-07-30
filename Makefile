@@ -6,7 +6,6 @@ BUILD_DIR := build
 OBJECT_DIR := $(BUILD_DIR)/obj
 TARGET := $(BUILD_DIR)/picemu
 SDL_TARGET := $(BUILD_DIR)/picemu-sdl
-HEX2C_TARGET := $(BUILD_DIR)/hex2c
 WEB_CORE_TARGET := $(BUILD_DIR)/picemu-web-core
 UNIT_TEST := $(BUILD_DIR)/tests/test_cpu
 SDL_PART_TEST := $(BUILD_DIR)/tests/test_sdl_parts
@@ -31,6 +30,7 @@ SIM_SOURCES := \
 	src/sim/devices/led.c \
 	src/sim/devices/button.c \
 	src/sim/devices/buzzer.c \
+	src/sim/devices/w25q.c \
 	src/sim/board.c
 
 PLATFORM_SOURCES := src/platform/gpio_bridge.c
@@ -70,13 +70,12 @@ SDL_PART_TEST_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
 	src/sim/devices/led.o src/sim/devices/button.o \
 	src/sim/devices/buzzer.o src/sim/config/circuit_config.o \
 	frontends/sdl/circuit/sdl_circuit.o $(SDL_PART_SOURCES:.c=.o))
-HEX2C_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
-	tools/hex2c.o src/firmware/hex_loader.o)
 WEB_CORE_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
-	frontends/web/backend/main.o $(CORE_SOURCES:.c=.o))
+	frontends/web/backend/main.o $(CORE_SOURCES:.c=.o) \
+	src/sim/devices/w25q.o)
 
 ALL_OBJECTS := $(sort $(CLI_OBJECTS) $(SDL_OBJECTS) \
-	$(UNIT_TEST_OBJECTS) $(HEX2C_OBJECTS) $(WEB_CORE_OBJECTS))
+	$(UNIT_TEST_OBJECTS) $(WEB_CORE_OBJECTS))
 ALL_OBJECTS += $(SDL_PART_TEST_OBJECTS)
 DEPFILES := $(ALL_OBJECTS:.o=.d)
 
@@ -84,7 +83,7 @@ SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
 
 .PHONY: all clean firmware example-firmware run test unit-test sdl-part-test integration-test \
-	sdl run-sdl tools web web-core run-web stm32 stm32-host-check stm32-host-test
+	sdl run-sdl web web-core run-web stm32 stm32-host-check stm32-host-test
 
 all: $(TARGET)
 
@@ -124,12 +123,6 @@ sdl: $(SDL_TARGET)
 
 run-sdl: sdl example-firmware
 	$(SDL_TARGET) examples/$(EXAMPLE)/diagram.json
-
-$(HEX2C_TARGET): $(HEX2C_OBJECTS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
-
-tools: $(HEX2C_TARGET)
 
 $(WEB_CORE_TARGET): $(WEB_CORE_OBJECTS)
 	@mkdir -p $(dir $@)

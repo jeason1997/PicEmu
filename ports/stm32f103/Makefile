@@ -14,7 +14,9 @@ BUILD_DIR := $(BUILD_ROOT)/$(EXAMPLE)
 TARGET := $(BUILD_DIR)/picemu-stm32f103
 CONFIG_STAMP := $(BUILD_DIR)/.config-$(CLOCK_MHZ)mhz-log$(LOG)
 FIRMWARE_HEX := $(PROJECT_ROOT)/examples/$(EXAMPLE)/build/firmware.hex
-HEX2C := $(PROJECT_ROOT)/build/hex2c
+HEX2C := $(BUILD_ROOT)/tools/hex2c
+HEX2C_SOURCES := tools/hex2c.c \
+	$(PROJECT_ROOT)/src/firmware/hex_loader.c
 GENERATED_FIRMWARE := $(BUILD_DIR)/generated/firmware.c
 
 CROSS ?= arm-none-eabi-
@@ -79,8 +81,11 @@ $(BUILD_DIR)/obj/generated/firmware.o: $(GENERATED_FIRMWARE)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(HEX2C):
-	$(MAKE) -C $(PROJECT_ROOT) tools
+$(HEX2C): $(HEX2C_SOURCES) \
+		$(PROJECT_ROOT)/include/picemu/firmware/hex_loader.h
+	@mkdir -p $(dir $@)
+	$(HOST_CC) -I$(PROJECT_ROOT)/include -std=c11 \
+		-Wall -Wextra -Wpedantic -O2 $(HEX2C_SOURCES) -o $@
 
 $(GENERATED_FIRMWARE): FORCE $(HEX2C)
 	$(MAKE) -C $(PROJECT_ROOT)/examples/$(EXAMPLE) firmware

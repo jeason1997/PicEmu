@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "clockHz": 4000000,
+  "firmware": "examples/spi_flash/build/firmware.hex",
+  "parts": [
+    {
+      "id": "mcu",
+      "type": "pic10f200",
+      "left": 300,
+      "top": 180,
+      "attrs": {
+        "firmware": "examples/spi_flash/build/firmware.hex"
+      }
+    },
+    {
+      "id": "flash",
+      "type": "w25q",
+      "left": 650,
+      "top": 180,
+      "attrs": {
+        "capacity": 2097152,
+        "data": "50 49 43 45 4D 55 21"
+      }
+    },
+    {
+      "id": "result",
+      "type": "led",
+      "left": 170,
+      "top": 340,
+      "attrs": {
+        "color": "green"
+      }
+    }
+  ],
+  "connections": [
+    ["mcu:GP0", "flash:/CS", "yellow", []],
+    ["mcu:GP1", "flash:CLK", "blue", []],
+    ["mcu:GP2", "flash:DI", "green", []],
+    ["mcu:GP3", "flash:DO", "orange", []],
+    ["mcu:GP2", "result:A", "green", []]
+  ]
+}

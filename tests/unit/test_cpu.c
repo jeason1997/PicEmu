@@ -6,6 +6,7 @@
 #include "picemu/sim/devices/led.h"
 #include "picemu/sim/devices/button.h"
 #include "picemu/sim/devices/buzzer.h"
+#include "picemu/sim/devices/w25q.h"
 #include "picemu/sim/circuit_config.h"
 
 #include <stdio.h>
@@ -22,6 +23,56 @@ static unsigned failures;
             ++failures;                                                      \
         }                                                                    \
     } while (0)
+
+static void w25_send_byte(SimW25q *flash, uint8_t value)
+{
+    unsigned bit;
+    for (bit = 0; bit < 8; ++bit) {
+        bool high = (value & (0x80u >> bit)) != 0;
+        sim_w25q_set_lines(flash, false, false, high);
+        sim_w25q_set_lines(flash, false, true, high);
+        sim_w25q_set_lines(flash, false, false, high);
+    }
+}
+
+static uint8_t w25_receive_byte(SimW25q *flash)
+{
+    uint8_t value = 0;
+    unsigned bit;
+    for (bit = 0; bit < 8; ++bit) {
+        sim_w25q_set_lines(flash, false, true, false);
+        value = (uint8_t)((value << 1) |
+                          (sim_w25q_miso(flash) ? 1u : 0u));
+        sim_w25q_set_lines(flash, false, false, false);
+    }
+    return value;
+}
+
+static void test_w25q_spi_read(void)
+{
+    static const uint8_t initial[] = {0x50, 0x49, 0x43, 0x45};
+    SimW25q flash;
+    uint8_t copy[4];
+
+    CHECK(sim_w25q_init(&flash, 128u * 1024u,
+                        initial, sizeof(initial)));
+    sim_w25q_set_lines(&flash, false, false, false);
+    w25_send_byte(&flash, 0x03);
+    w25_send_byte(&flash, 0x00);
+    w25_send_byte(&flash, 0x00);
+    w25_send_byte(&flash, 0x00);
+    CHECK(w25_receive_byte(&flash) == 0x50);
+    CHECK(w25_receive_byte(&flash) == 0x49);
+    CHECK(w25_receive_byte(&flash) == 0x43);
+    CHECK(w25_receive_byte(&flash) == 0x45);
+    sim_w25q_set_lines(&flash, true, false, false);
+
+    CHECK(sim_w25q_read(&flash, 0, copy, sizeof(copy)));
+    CHECK(memcmp(copy, initial, sizeof(copy)) == 0);
+    CHECK(!sim_w25q_read(&flash, flash.capacity - 1,
+                         copy, sizeof(copy)));
+    sim_w25q_destroy(&flash);
+}
 
 static HexImage blank_image(bool watchdog_enabled)
 {
@@ -432,6 +483,7 @@ int main(void)
     test_generic_circuit_properties();
     test_fast_countdown_loop();
     test_fast_xc8_postdecrement_loop();
+    test_w25q_spi_read();
 
     if (failures != 0) {
         fprintf(stderr, "CPU单元测试失败：%u项\n", failures);

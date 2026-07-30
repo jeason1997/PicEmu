@@ -72,6 +72,7 @@ button.primary { background: #147c61; border-color: #29a983; }
 .chip-icon { background: #374151; border: 2px solid #94a3b8; box-shadow: -5px 0 0 -3px #94a3b8,5px 0 0 -3px #94a3b8; }
 .led-icon { width: 25px; height: 25px; border-radius: 50%; background: #ff4d55; box-shadow: 0 0 10px #ff4d5577; }
 .buzzer-icon { border-radius: 50%; border: 2px solid #94a3b8; font-size: 18px; }
+.flash-icon { border-radius: 4px; border: 2px solid #94a3b8; font-size: 19px; }
 .button-icon { border: 2px solid #94a3b8; border-radius: 4px; }
 .palette-help { margin-top: 22px; color: var(--muted); font-size: 12px; padding: 10px; background: #10161e; border-radius: 8px; }
 .stage-shell { min-width: 0; min-height:0; display: grid; grid-template-rows: 42px minmax(0,1fr) 34px; background: #0b1016; }
@@ -108,6 +109,25 @@ button.primary { background: #147c61; border-color: #29a983; }
 .part-label { text-align: center; margin-top: 7px; color: #cbd5e1; font-size: 12px; }
 .mcu .part-body {
   width: 300px; height: 240px; background: #29313c; border: 1px solid #94a3b8; border-radius: 4px;
+}
+.flash-chip .part-body {
+  width:180px;height:150px;background:#252d38;
+  border:1px solid #94a3b8;border-radius:4px;
+}
+.flash-title {
+  text-align:center;font:700 22px ui-monospace,monospace;
+  padding-top:10px;letter-spacing:1px;
+}
+.flash-capacity-label {
+  position:absolute;right:10px;bottom:8px;color:#8fa1b5;
+  font:10px ui-monospace,monospace;
+}
+.w25-toolbar { display:flex;gap:6px;align-items:center;flex-wrap:wrap; }
+.w25-toolbar input { width:100px; }
+.w25-dump {
+  margin-top:8px;max-height:310px;overflow:auto;padding:8px;
+  background:#0d131b;border:1px solid var(--line);border-radius:5px;
+  color:#c8d4e3;font:11px/1.55 ui-monospace,monospace;white-space:pre;
 }
 .mcu-title { text-align: center; font: 700 24px ui-monospace,monospace; padding-top: 14px; letter-spacing: 1px; }
 .pin-one { position: absolute; left: 12px; top: 12px; width: 9px; height: 9px; background: #d7dde5; }
