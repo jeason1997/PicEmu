@@ -11,3 +11,6 @@
 /fpga/build/
 /fpga/**/___module_export.json
 /fpga/**/__pycache__/
+
+# 本地工具链、PDF 渲染和临时诊断文件
+/tmp/

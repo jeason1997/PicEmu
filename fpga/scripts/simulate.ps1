@@ -25,13 +25,23 @@ foreach ($Tool in @($Iverilog, $Vvp)) {
 $FpgaRoot = Split-Path -Parent $PSScriptRoot
 $BuildDir = Join-Path $FpgaRoot "build\pic10f200"
 $CoreFile = Join-Path $FpgaRoot "rtl\core\pic10f200_core.v"
-$Testbench = Join-Path $FpgaRoot "tb\pic10f200_core_tb.v"
-$Simulation = Join-Path $BuildDir "pic10f200_core_tb.vvp"
+$ProgramMemoryFile = Join-Path $FpgaRoot "rtl\memory\pic10f200_program_memory.v"
+$CoreTestbench = Join-Path $FpgaRoot "tb\pic10f200_core_tb.v"
+$MemoryTestbench = Join-Path $FpgaRoot "tb\pic10f200_program_memory_tb.v"
+$CoreSimulation = Join-Path $BuildDir "pic10f200_core_tb.vvp"
+$MemorySimulation = Join-Path $BuildDir "pic10f200_program_memory_tb.vvp"
 
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
-& $Iverilog -g2012 -s pic10f200_core_tb -o $Simulation $CoreFile $Testbench
+& $Iverilog -g2012 -s pic10f200_core_tb -o $CoreSimulation $CoreFile $CoreTestbench
 if ($LASTEXITCODE -ne 0) { throw "Icarus Verilog compile failed (exit code $LASTEXITCODE)." }
 
-& $Vvp $Simulation
+& $Vvp $CoreSimulation
 if ($LASTEXITCODE -ne 0) { throw "Simulation failed (exit code $LASTEXITCODE)." }
+
+& $Iverilog -g2012 -s pic10f200_program_memory_tb `
+    -o $MemorySimulation $ProgramMemoryFile $MemoryTestbench
+if ($LASTEXITCODE -ne 0) { throw "Program-memory test compile failed (exit code $LASTEXITCODE)." }
+
+& $Vvp $MemorySimulation
+if ($LASTEXITCODE -ne 0) { throw "Program-memory test failed (exit code $LASTEXITCODE)." }

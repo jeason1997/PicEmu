@@ -3,7 +3,7 @@
   "includedFiles": [
     "rtl/common/clock_enable.v",
     "rtl/common/input_synchronizer.v",
-    "rtl/core/pic10f200_program_rom.v",
+    "rtl/memory/pic10f200_program_memory.v",
     "rtl/core/pic10f200_core.v",
     "boards/tang_nano_1k/pic10f200_top.v"
   ],

@@ -36,7 +36,8 @@ module top (
         .sync_output(gp3_input)
     );
 
-    pic10f200_program_rom rom (
+    pic10f200_program_memory program_memory (
+        .clk(sys_clk),
         .address(program_address),
         .instruction(program_instruction)
     );
