@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "clockHz": 4000000,
+  "firmware": "examples/i2c_lcd1602/build/firmware.hex",
+  "parts": [
+    {
+      "id": "mcu",
+      "type": "pic10f200",
+      "left": 260,
+      "top": 220,
+      "attrs": {
+        "firmware": "examples/i2c_lcd1602/build/firmware.hex"
+      }
+    },
+    {
+      "id": "lcd",
+      "type": "i2c-lcd1602",
+      "left": 760,
+      "top": 270,
+      "attrs": {
+        "address": 39
+      }
+    }
+  ],
+  "connections": [
+    ["mcu:GP0", "lcd:SDA", "#55d6a4", []],
+    ["mcu:GP1", "lcd:SCL", "#5ca9ff", []]
+  ]
+}

@@ -209,6 +209,11 @@ async function api(request, response, url) {
       fields = ["w25_read", value.offset || 0, value.count || 256];
     } else if (command === "w25_write") {
       fields = ["w25_write", value.offset || 0, value.data || ""];
+    } else if (command === "lcd1602_config") {
+      fields = [
+        "lcd1602_config", value.address ?? 0x27,
+        value.sdaPin, value.sclPin
+      ];
     } else if (["reset", "state", "flash"].includes(command)) {
       fields = [command];
     } else {

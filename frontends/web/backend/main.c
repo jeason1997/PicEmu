@@ -1,6 +1,7 @@
 #include "picemu/core/pic10_cpu.h"
 #include "picemu/core/disassembler.h"
 #include "picemu/firmware/hex_loader.h"
+#include "picemu/sim/devices/i2c_lcd1602.h"
 #include "picemu/sim/devices/w25q.h"
 
 #include <inttypes.h>
@@ -31,6 +32,10 @@ static unsigned w25q_cs_pin;
 static unsigned w25q_clock_pin;
 static unsigned w25q_mosi_pin;
 static unsigned w25q_miso_pin;
+static SimI2cLcd1602 lcd1602;
+static bool lcd1602_attached;
+static unsigned lcd1602_sda_pin;
+static unsigned lcd1602_scl_pin;
 
 static char *next_field(char **cursor);
 
@@ -55,6 +60,7 @@ static void print_json_string(const char *text)
 static void print_state(bool include_flash)
 {
     unsigned i;
+    char lcd_line[17];
 
     printf("{\"ok\":true,\"loaded\":%s", loaded ? "true" : "false");
     if (!loaded) {
@@ -89,6 +95,16 @@ static void print_state(bool include_flash)
         printf("%.4f", pin_duty[i]);
     }
     putchar(']');
+    if (lcd1602_attached) {
+        fputs(",\"lcd1602\":{\"address\":", stdout);
+        printf("%u,\"lines\":[", lcd1602.address);
+        sim_i2c_lcd1602_get_line(&lcd1602, 0, lcd_line);
+        print_json_string(lcd_line);
+        putchar(',');
+        sim_i2c_lcd1602_get_line(&lcd1602, 1, lcd_line);
+        print_json_string(lcd_line);
+        fputs("]}", stdout);
+    }
 
     fputs(",\"stack\":[", stdout);
     printf("%u,%u],\"stackPointer\":%u,\"ram\":[",
@@ -162,12 +178,32 @@ static void update_w25q_lines(void)
     drive_w25q_miso();
 }
 
+static void drive_lcd1602_pullups(void)
+{
+    if (!lcd1602_attached) return;
+    pic10_drive_pin(&cpu, lcd1602_sda_pin, true, true);
+    pic10_drive_pin(&cpu, lcd1602_scl_pin, true, true);
+}
+
+static void update_lcd1602_lines(void)
+{
+    uint8_t gpio;
+    if (!lcd1602_attached) return;
+    gpio = pic10_gpio_value(&cpu);
+    sim_i2c_lcd1602_set_lines(
+        &lcd1602,
+        (gpio & (1u << lcd1602_scl_pin)) != 0,
+        (gpio & (1u << lcd1602_sda_pin)) != 0);
+}
+
 static unsigned step_cpu(void)
 {
     unsigned consumed;
     drive_w25q_miso();
+    drive_lcd1602_pullups();
     consumed = pic10_step_cycles(&cpu);
     update_w25q_lines();
+    update_lcd1602_lines();
     return consumed;
 }
 
@@ -281,6 +317,35 @@ static void configure_w25q(char **cursor)
     w25q_miso_pin = pins[3];
     w25q_attached = true;
     update_w25q_lines();
+    print_state(false);
+}
+
+static void configure_lcd1602(char **cursor)
+{
+    char *address_text = next_field(cursor);
+    char *sda_text = next_field(cursor);
+    char *scl_text = next_field(cursor);
+    unsigned address;
+    unsigned sda;
+    unsigned scl;
+
+    if (address_text == NULL || sda_text == NULL || scl_text == NULL) {
+        print_error("LCD1602 configuration parameters are incomplete");
+        return;
+    }
+    address = (unsigned)strtoul(address_text, NULL, 0);
+    sda = (unsigned)strtoul(sda_text, NULL, 0);
+    scl = (unsigned)strtoul(scl_text, NULL, 0);
+    if (address > 0x7Fu || sda > 3u || scl > 3u || sda == scl) {
+        print_error("Invalid LCD1602 I2C address or GPIO pins");
+        return;
+    }
+    sim_i2c_lcd1602_init(&lcd1602, (uint8_t)address);
+    lcd1602_sda_pin = sda;
+    lcd1602_scl_pin = scl;
+    lcd1602_attached = true;
+    drive_lcd1602_pullups();
+    update_lcd1602_lines();
     print_state(false);
 }
 
@@ -402,6 +467,7 @@ int main(void)
                     sim_w25q_destroy(&w25q);
                     w25q_attached = false;
                 }
+                lcd1602_attached = false;
                 loaded = true;
                 print_state(true);
             }
@@ -417,6 +483,11 @@ int main(void)
             if (w25q_attached) {
                 sim_w25q_reset_bus(&w25q);
                 update_w25q_lines();
+            }
+            if (lcd1602_attached) {
+                sim_i2c_lcd1602_reset(&lcd1602);
+                drive_lcd1602_pullups();
+                update_lcd1602_lines();
             }
             print_state(false);
         } else if (strcmp(command, "step") == 0) {
@@ -451,6 +522,8 @@ int main(void)
             print_w25q_data(&cursor);
         } else if (strcmp(command, "w25_write") == 0) {
             write_w25q_data(&cursor);
+        } else if (strcmp(command, "lcd1602_config") == 0) {
+            configure_lcd1602(&cursor);
         } else {
             print_error("未知的Web后端命令");
         }

@@ -25,6 +25,46 @@ const W25_CAPACITIES = [
   [16777216, "W25Q128 · 16 MiB"]
 ];
 const MCU_TYPES = new Set(["pic10f200", "pic10f202"]);
+const LCD_GLYPHS = {
+  " ": [0,0,0,0,0,0,0], "?": [14,17,1,2,4,0,4],
+  "0":[14,17,19,21,25,17,14], "1":[4,12,4,4,4,4,14],
+  "2":[14,17,1,2,4,8,31], "3":[30,1,1,14,1,1,30],
+  "4":[2,6,10,18,31,2,2], "5":[31,16,30,1,1,17,14],
+  "6":[6,8,16,30,17,17,14], "7":[31,1,2,4,8,8,8],
+  "8":[14,17,17,14,17,17,14], "9":[14,17,17,15,1,2,12],
+  "A":[14,17,17,31,17,17,17], "B":[30,17,17,30,17,17,30],
+  "C":[14,17,16,16,16,17,14], "D":[30,17,17,17,17,17,30],
+  "E":[31,16,16,30,16,16,31], "F":[31,16,16,30,16,16,16],
+  "G":[14,17,16,23,17,17,15], "H":[17,17,17,31,17,17,17],
+  "I":[14,4,4,4,4,4,14], "J":[7,2,2,2,2,18,12],
+  "K":[17,18,20,24,20,18,17], "L":[16,16,16,16,16,16,31],
+  "M":[17,27,21,21,17,17,17], "N":[17,25,21,19,17,17,17],
+  "O":[14,17,17,17,17,17,14], "P":[30,17,17,30,16,16,16],
+  "Q":[14,17,17,17,21,18,13], "R":[30,17,17,30,20,18,17],
+  "S":[15,16,16,14,1,1,30], "T":[31,4,4,4,4,4,4],
+  "U":[17,17,17,17,17,17,14], "V":[17,17,17,17,17,10,4],
+  "W":[17,17,17,21,21,21,10], "X":[17,17,10,4,10,17,17],
+  "Y":[17,17,10,4,4,4,4], "Z":[31,1,2,4,8,16,31],
+  "-":[0,0,0,31,0,0,0], "_":[0,0,0,0,0,0,31],
+  ".":[0,0,0,0,0,12,12], ":":[0,12,12,0,12,12,0]
+};
+
+function lcdCellHtml(character) {
+  const glyph = LCD_GLYPHS[character] ||
+    LCD_GLYPHS[character.toUpperCase()] || LCD_GLYPHS["?"];
+  const dots = [];
+  for (let row = 0; row < 8; row++) {
+    const bits = glyph[row] || 0;
+    for (let column = 0; column < 5; column++) {
+      dots.push(`<i class="${bits & (1 << (4 - column)) ? "on" : ""}"></i>`);
+    }
+  }
+  return `<span class="lcd-cell">${dots.join("")}</span>`;
+}
+
+function lcdLineHtml(text = "") {
+  return text.padEnd(16).slice(0, 16).split("").map(lcdCellHtml).join("");
+}
 
 const model = {
   diagram: { version: 1, clockHz: 4000000, firmware: "", parts: [], connections: [] },
@@ -71,6 +111,10 @@ const pinDefs = {
     { name:"CLK", label:"6 CLK", side:"left", top:72 },
     { name:"DI", label:"5 DI (MOSI)", side:"left", top:102 }
   ],
+  "i2c-lcd1602": [
+    { name:"SDA", label:"SDA", side:"left", top:34 },
+    { name:"SCL", label:"SCL", side:"left", top:84 }
+  ],
   led: [{ name:"A", gpio:null }],
   pushbutton: [{ name:"1", gpio:null }],
   buzzer: [{ name:"1", gpio:null }]
@@ -109,6 +153,7 @@ function hex(value, digits = 2) {
 function partClass(type) {
   return isMcuType(type) ? "mcu"
     : type === "w25q" ? "flash-chip"
+    : type === "i2c-lcd1602" ? "lcd1602-part"
     : type === "led" ? "led-part"
     : type === "pushbutton" ? "button-part" : "buzzer-part";
 }
@@ -120,13 +165,15 @@ function stageY(worldY) { return worldY + ORIGIN_Y; }
 function partSize(type) {
   if (isMcuType(type)) return { width: 300, height: 240 };
   if (type === "w25q") return { width: 180, height: 150 };
+  if (type === "i2c-lcd1602") return { width: 430, height: 154 };
   if (type === "led") return { width: 48, height: 48 };
   if (type === "pushbutton") return { width: 110, height: 60 };
   return { width: 60, height: 60 };
 }
 function partTopLeft(part) {
   const size = partSize(part.type);
-  if (isMcuType(part.type) || part.type === "w25q") {
+  if (isMcuType(part.type) || part.type === "w25q" ||
+      part.type === "i2c-lcd1602") {
     return { left: part.left, top: part.top };
   }
   return {
@@ -275,6 +322,25 @@ function renderPart(part) {
     const capacityName = W25_CAPACITIES.find(item => item[0] === capacity);
     el.querySelector(".flash-capacity-label").textContent =
       capacityName ? capacityName[1].split(" · ")[0] : `${capacity} B`;
+  } else if (part.type === "i2c-lcd1602") {
+    el.innerHTML = `<div class="part-body">
+      <div class="lcd-bezel"><div class="lcd-line" data-text="">${
+        lcdLineHtml()}</div><div class="lcd-line" data-text="">${
+        lcdLineHtml()}</div></div></div>
+      <div class="part-label">${part.id} · 0x${Number(
+        part.attrs?.address ?? 0x27).toString(16).toUpperCase()}</div>`;
+    for (const pinDef of pinDefs["i2c-lcd1602"]) {
+      const pin = document.createElement("div");
+      pin.className = "pin left";
+      pin.style.top = `${pinDef.top}px`;
+      pin.textContent = pinDef.label;
+      pin.dataset.pin = pinDef.name;
+      pin.addEventListener("pointerdown", event => {
+        event.stopPropagation();
+        selectPin(part, pinDef.name, pin);
+      });
+      el.querySelector(".part-body").appendChild(pin);
+    }
   } else if (part.type === "led") {
     el.innerHTML = `<div class="part-body"><i class="device-pin" data-pin="A"></i></div>
       <div class="part-label">${part.id}</div>`;
@@ -314,15 +380,21 @@ function pinPoint(endpoint) {
     if (!pin) return null;
     return {
       x: stageX(part.left) + (pin.side === "left" ? -6 : 306),
-      y: stageY(part.top) + pin.top + 12
+      y: stageY(part.top) + pin.top + 12,
+      side: pin.side,
+      top: stageY(part.top),
+      bottom: stageY(part.top) + partSize(part.type).height
     };
   }
-  if (part.type === "w25q") {
-    const pin = pinDefs.w25q.find(item => item.name === pinName);
+  if (part.type === "w25q" || part.type === "i2c-lcd1602") {
+    const pin = pinDefs[part.type].find(item => item.name === pinName);
     if (!pin) return null;
     return {
       x: stageX(part.left) - 6,
-      y: stageY(part.top) + pin.top + 12
+      y: stageY(part.top) + pin.top + 12,
+      side: "left",
+      top: stageY(part.top),
+      bottom: stageY(part.top) + partSize(part.type).height
     };
   }
   const size = partSize(part.type);
@@ -330,8 +402,40 @@ function pinPoint(endpoint) {
   return {
     x: stageX(part.left) +
       (side === "left" ? -size.width / 2 : size.width / 2),
-    y: stageY(part.top)
+    y: stageY(part.top),
+    side,
+    top: stageY(part.top) - size.height / 2,
+    bottom: stageY(part.top) + size.height / 2
   };
+}
+
+function automaticWirePath(a, b, lane = 0) {
+  const stubLength = 30;
+  const aStub = a.x + (a.side === "left" ? -stubLength : stubLength);
+  const bStub = b.x + (b.side === "left" ? -stubLength : stubLength);
+  const faceEachOther =
+    (a.side === "right" && b.side === "left" && a.x < b.x) ||
+    (a.side === "left" && b.side === "right" && b.x < a.x);
+
+  if (faceEachOther) {
+    const middle = snap((aStub + bStub) / 2);
+    return `M${a.x},${a.y} H${middle} V${b.y} H${b.x}`;
+  }
+
+  /*
+   * 引脚没有相向时，先沿引脚朝向离开器件，再从两个器件下方绕行，
+   * 防止连线穿过器件本体而造成引脚归属不清。
+   */
+  const routeY = snap(Math.max(a.bottom, b.bottom) + 40 +
+    (lane % 8) * 20);
+  return [
+    `M${a.x},${a.y}`,
+    `H${aStub}`,
+    `V${routeY}`,
+    `H${bStub}`,
+    `V${b.y}`,
+    `H${b.x}`
+  ].join(" ");
 }
 
 function renderWires() {
@@ -358,9 +462,7 @@ function renderWires() {
         `H${b.x} V${b.y}`
       ].join(" "));
     } else {
-      const middle = snap((a.x + b.x) / 2);
-      path.setAttribute("d",
-        `M${a.x},${a.y} H${middle} V${b.y} H${b.x}`);
+      path.setAttribute("d", automaticWirePath(a, b, index));
     }
     path.addEventListener("pointerdown", event => {
       event.stopPropagation();
@@ -377,6 +479,7 @@ function renderWires() {
 
 function selectPin(part, pin, element) {
   model.selectedConnection = null;
+  updateSelection();
   const endpoint = pinKey(part.id, pin);
   if (!model.pendingPin) {
     model.pendingPin = { endpoint, element };
@@ -400,6 +503,7 @@ function selectPin(part, pin, element) {
   renderWires();
   message("连线已更新");
   configureAllW25(false).catch(error => message(error.message, true));
+  configureAllLcd1602(false).catch(error => message(error.message, true));
 }
 
 function beginPartDrag(event, part, el) {
@@ -423,10 +527,10 @@ function beginPartDrag(event, part, el) {
     model.selectedIds.add(part.id);
   }
   model.selected = part.id;
+  model.selectedConnection = null;
   updateSelection();
   if (model.selectedIds.size === 1) showPartInspector(part);
   if (isMcuType(part.type)) selectActiveMcu(part.id);
-  model.selectedConnection = null;
   const startX = event.clientX, startY = event.clientY;
   const starts = new Map(model.diagram.parts
     .filter(item => model.selectedIds.has(item.id))
@@ -482,7 +586,8 @@ function beginPartDrag(event, part, el) {
 
 function renderPortDirections() {
   for (const part of model.diagram.parts) {
-    if (isMcuType(part.type) || part.type === "w25q") continue;
+    if (isMcuType(part.type) || part.type === "w25q" ||
+        part.type === "i2c-lcd1602") continue;
     const pin = document.querySelector(
       `.part[data-id="${CSS.escape(part.id)}"] .device-pin`);
     if (!pin) continue;
@@ -495,11 +600,25 @@ function renderPortDirections() {
 function updateSelection() {
   document.querySelectorAll(".part").forEach(el =>
     el.classList.toggle("selected", model.selectedIds.has(el.dataset.id)));
+  document.querySelectorAll(".pin.wire-endpoint,.device-pin.wire-endpoint")
+    .forEach(pin => pin.classList.remove("wire-endpoint"));
+  const connection = model.diagram.connections[model.selectedConnection];
+  if (!connection) return;
+  for (const endpoint of connection.slice(0, 2)) {
+    const separator = endpoint.indexOf(":");
+    const id = endpoint.slice(0, separator);
+    const pinName = endpoint.slice(separator + 1);
+    const pin = document.querySelector(
+      `.part[data-id="${CSS.escape(id)}"] [data-pin="${
+        CSS.escape(pinName)}"]`);
+    pin?.classList.add("wire-endpoint");
+  }
 }
 
 function uniqueId(type) {
   const base = isMcuType(type) ? "mcu"
     : type === "w25q" ? "flash"
+    : type === "i2c-lcd1602" ? "lcd"
     : type === "pushbutton" ? "button" : type;
   let index = 1, value = base;
   while (model.diagram.parts.some(part => part.id === value)) value = base + index++;
@@ -528,6 +647,7 @@ stageViewport.addEventListener("drop", event => {
   if (type === "led") part.attrs = { color: "red" };
   if (type === "pushbutton") part.attrs = { activeLow: true };
   if (type === "w25q") part.attrs = { capacity: 2097152, data: "" };
+  if (type === "i2c-lcd1602") part.attrs = { address: 0x27 };
   model.diagram.parts.push(part);
   if (isMcuType(type)) selectActiveMcu(part.id);
   model.selectedIds.clear();
@@ -769,6 +889,46 @@ async function configureAllW25(strict = true) {
   for (const flash of flashes) await configureW25(flash, strict);
 }
 
+function lcd1602Wiring(part) {
+  const result = {};
+  let mcuId = null;
+  for (const [lcdPin, property] of [["SDA", "sdaPin"], ["SCL", "sclPin"]]) {
+    const endpoint = `${part.id}:${lcdPin}`;
+    const connection = model.diagram.connections.find(item =>
+      item[0] === endpoint || item[1] === endpoint);
+    if (!connection) return null;
+    const other = connection[0] === endpoint ? connection[1] : connection[0];
+    const match = /^([^:]+):GP([0-3])$/.exec(other);
+    if (!match || (mcuId !== null && mcuId !== match[1])) return null;
+    mcuId = match[1];
+    result[property] = Number(match[2]);
+  }
+  return mcuParts().some(part => part.id === mcuId)
+    ? { mcuId, ...result } : null;
+}
+
+async function configureLcd1602(part, strict = true) {
+  const wiring = lcd1602Wiring(part);
+  if (!wiring) {
+    if (strict) throw new Error(`${part.id} must connect SDA and SCL to one PIC`);
+    return false;
+  }
+  const result = await post("/api/command", {
+    command: "lcd1602_config",
+    mcuId: wiring.mcuId,
+    address: Number(part.attrs?.address ?? 0x27),
+    ...wiring
+  });
+  setState(result);
+  return true;
+}
+
+async function configureAllLcd1602(strict = true) {
+  const displays = model.diagram.parts.filter(
+    part => part.type === "i2c-lcd1602");
+  for (const display of displays) await configureLcd1602(display, strict);
+}
+
 function formatW25Dump(offset, data) {
   const rows = [];
   for (let index = 0; index < data.length; index += 16) {
@@ -922,6 +1082,20 @@ function updatePartsFromState() {
     const el = document.querySelector(`.part[data-id="${CSS.escape(part.id)}"]`);
     if (!el) continue;
     const connection = connectedMcuPin(part);
+    if (part.type === "i2c-lcd1602") {
+      const wiring = lcd1602Wiring(part);
+      const lines = wiring
+        ? model.states.get(wiring.mcuId)?.lcd1602?.lines : null;
+      if (lines) {
+        el.querySelectorAll(".lcd-line").forEach((line, index) => {
+          const text = (lines[index] || "").padEnd(16).slice(0, 16);
+          if (line.dataset.text !== text) {
+            line.dataset.text = text;
+            line.innerHTML = lcdLineHtml(text);
+          }
+        });
+      }
+    }
     if (part.type === "led" && connection?.state) {
       const { gpio, state } = connection;
       const duty = state.pinDuty?.[gpio] ?? ((state.gpio >> gpio) & 1);
@@ -1024,6 +1198,7 @@ async function loadDiagram(diagram, name = "电路", diagramPath = null) {
     const states = await Promise.all(loads);
     states.filter(Boolean).forEach(setState);
     await configureAllW25(true);
+    await configureAllLcd1602(true);
     const loaded = states.filter(Boolean).length;
     const flashCount =
       model.diagram.parts.filter(part => part.type === "w25q").length;
@@ -1135,6 +1310,13 @@ function showPartInspector(part) {
       <input id="propFirmware" value="${firmware}" disabled>
       <button id="propHexBtn" type="button">为 ${part.id} 设置 HEX</button>
     </div>` : ""}
+    ${part.type === "i2c-lcd1602" ? `
+      <div class="property-row"><label>I²C address</label>
+        <select id="propLcdAddress">
+          <option value="39">0x27</option>
+          <option value="63">0x3F</option>
+        </select>
+      </div>` : ""}
     ${part.type === "w25q" ? `
       <div class="property-row"><label>容量</label>
         <select id="propW25Capacity">${W25_CAPACITIES.map(([value, label]) =>
@@ -1208,6 +1390,20 @@ function showPartInspector(part) {
       attrs.color = e.target.value;
       renderAll();
       recordHistory();
+    });
+  }
+  const lcdAddress = $("#propLcdAddress");
+  if (lcdAddress) {
+    lcdAddress.value = String(attrs.address ?? 0x27);
+    lcdAddress.addEventListener("change", async event => {
+      attrs.address = Number(event.target.value);
+      recordHistory();
+      renderAll();
+      try {
+        await configureLcd1602(part, true);
+      } catch (error) {
+        message(error.message, true);
+      }
     });
   }
   const hexButton = $("#propHexBtn");
@@ -1287,6 +1483,7 @@ $("#deleteBtn").addEventListener("click", () => {
   if (model.selectedConnection !== null) {
     model.diagram.connections.splice(model.selectedConnection, 1);
     model.selectedConnection = null;
+    updateSelection();
     renderPortDirections();
     renderWires();
     message("已删除连线");

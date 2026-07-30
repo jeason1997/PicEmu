@@ -1,4 +1,4 @@
-EXAMPLES := blink breathing_led button buzzer led_chaser playmusic spi_flash
+EXAMPLES := blink breathing_led button buzzer i2c_lcd1602 led_chaser playmusic spi_flash
 
 .PHONY: all clean $(EXAMPLES)
 
