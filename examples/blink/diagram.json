@@ -3,16 +3,31 @@
   "clockHz": 4000000,
   "firmware": "examples/blink/build/firmware.hex",
   "parts": [
-    { "id": "mcu", "type": "pic10f200", "left": 330, "top": 150 },
+    {
+      "id": "mcu",
+      "type": "pic10f200",
+      "left": 330,
+      "top": 150,
+      "attrs": {
+        "firmware": "examples/blink/build/firmware.hex"
+      }
+    },
     {
       "id": "led1",
       "type": "led",
       "left": 150,
       "top": 200,
-      "attrs": { "color": "red" }
+      "attrs": {
+        "color": "red"
+      }
     }
   ],
   "connections": [
-    ["mcu:GP0", "led1:A", "red", []]
+    [
+      "mcu:GP0",
+      "led1:A",
+      "red",
+      []
+    ]
   ]
 }

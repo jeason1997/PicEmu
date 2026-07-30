@@ -72,15 +72,15 @@ static bool part_pin(SdlPart *part, const char *name,
     return sdl_part_find_pin(part, name, pin, point, is_signal);
 }
 
-bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
-                      const HexImage *image, char *error,
-                      size_t error_size)
+static bool circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
+                         const HexImage *fallback_image,
+                         bool force_fallback, char *error,
+                         size_t error_size)
 {
     unsigned i;
-    unsigned mcu_count = 0;
-    const PicDeviceDescription *device = NULL;
 
     memset(circuit, 0, sizeof(*circuit));
+    sim_board_init(&circuit->board, NULL);
     circuit->part_count = config->part_count;
 
     for (i = 0; i < config->part_count; ++i) {
@@ -90,8 +90,44 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
             return false;
         }
         if (circuit->parts[i].is_mcu) {
-            ++mcu_count;
-            device = circuit->parts[i].view_state;
+            const char *firmware =
+                circuit_part_get(&config->parts[i], "firmware", "");
+            const PicDeviceDescription *device =
+                circuit->parts[i].view_state;
+            HexImage loaded_image;
+            const HexImage *image = fallback_image;
+            unsigned index = circuit->mcu_count;
+
+            if (!force_fallback && firmware[0] != '\0') {
+                if (!hex_load_file(firmware, &loaded_image,
+                                   error, error_size)) {
+                    sdl_circuit_destroy(circuit);
+                    return false;
+                }
+                image = &loaded_image;
+            }
+            if (image == NULL) {
+                snprintf(error, error_size,
+                         "主控 %s 没有设置 attrs.firmware",
+                         config->parts[i].id);
+                sdl_circuit_destroy(circuit);
+                return false;
+            }
+            pic10_init(&circuit->cpus[index], image, device);
+            sim_pic10_mcu_init(&circuit->mcu_adapters[index],
+                               &circuit->cpus[index],
+                               config->clock_hz);
+            if (!sim_board_add_mcu(
+                    &circuit->board,
+                    &circuit->mcu_adapters[index].base)) {
+                snprintf(error, error_size, "无法注册主控 %s",
+                         config->parts[i].id);
+                sdl_circuit_destroy(circuit);
+                return false;
+            }
+            circuit->part_mcus[i] =
+                &circuit->mcu_adapters[index].base;
+            ++circuit->mcu_count;
         }
         if (i > 0 && find_part(circuit, circuit->parts[i].id, NULL) !=
                      &circuit->parts[i]) {
@@ -101,16 +137,12 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
             return false;
         }
     }
-    if (mcu_count != 1) {
+    if (circuit->mcu_count == 0) {
         snprintf(error, error_size,
-                 "当前电路必须包含一个pic10f200或pic10f202主控");
+                 "当前电路至少需要一个pic10f200或pic10f202主控");
         sdl_circuit_destroy(circuit);
         return false;
     }
-    pic10_init(&circuit->cpu, image, device);
-    sim_pic10_mcu_init(&circuit->mcu_adapter, &circuit->cpu,
-                       config->clock_hz);
-    sim_board_init(&circuit->board, &circuit->mcu_adapter.base);
 
     for (i = 0; i < config->connection_count; ++i) {
         const CircuitConnectionConfig *source = &config->connections[i];
@@ -162,13 +194,15 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
 
             if (wire->net < 0 ||
                 (connect_a &&
-                 !(pic_a ? sim_board_connect_mcu(&circuit->board,
-                                                 wire->net, pin_a)
+                 !(pic_a ? sim_board_connect_mcu_instance(
+                              &circuit->board, wire->net,
+                              circuit->part_mcus[wire->part_a], pin_a)
                           : sim_board_connect_device(&circuit->board,
                               wire->net, part_a->device, pin_a))) ||
                 (connect_b &&
-                 !(pic_b ? sim_board_connect_mcu(&circuit->board,
-                                                 wire->net, pin_b)
+                 !(pic_b ? sim_board_connect_mcu_instance(
+                              &circuit->board, wire->net,
+                              circuit->part_mcus[wire->part_b], pin_b)
                           : sim_board_connect_device(&circuit->board,
                               wire->net, part_b->device, pin_b)))) {
                 snprintf(error, error_size,
@@ -185,6 +219,31 @@ bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
     return true;
 }
 
+bool sdl_circuit_init(SdlCircuit *circuit, const CircuitConfig *config,
+                      const HexImage *fallback_image, char *error,
+                      size_t error_size)
+{
+    return circuit_init(circuit, config, fallback_image, false,
+                        error, error_size);
+}
+
+bool sdl_circuit_init_with_override(
+    SdlCircuit *circuit, const CircuitConfig *config,
+    const HexImage *override_image, char *error, size_t error_size)
+{
+    return circuit_init(circuit, config, override_image, true,
+                        error, error_size);
+}
+
+bool sdl_circuit_all_stopped(const SdlCircuit *circuit)
+{
+    unsigned i;
+    for (i = 0; i < circuit->mcu_count; ++i) {
+        if (!sim_mcu_stopped(&circuit->mcu_adapters[i].base)) return false;
+    }
+    return true;
+}
+
 void sdl_circuit_reset(SdlCircuit *circuit)
 {
     sim_board_reset(&circuit->board);
@@ -196,15 +255,21 @@ unsigned sdl_circuit_step(SdlCircuit *circuit)
 }
 
 void sdl_circuit_render(SDL_Renderer *renderer,
-                        const SdlCircuit *circuit, bool running)
+                        const SdlCircuit *circuit, bool running,
+                        float zoom, int pan_x, int pan_y)
 {
     unsigned i;
+    SDL_Rect canvas_view = {pan_x, pan_y, 960, 600};
     SDL_Rect state_bar = {0, 0, 960, 45};
     SDL_SetRenderDrawColor(renderer, 18, 22, 27, 255);
     SDL_RenderClear(renderer);
-    SDL_SetRenderDrawColor(renderer, running ? 35 : 80,
-                          running ? 115 : 80, running ? 60 : 80, 255);
-    SDL_RenderFillRect(renderer, &state_bar);
+
+    /*
+     * 器件模块仍只处理电路世界坐标。统一在渲染器上施加相机变换，
+     * 因而新增器件无需各自实现缩放和平移。
+     */
+    SDL_RenderSetViewport(renderer, &canvas_view);
+    SDL_RenderSetScale(renderer, zoom, zoom);
 
     for (i = 0; i < circuit->wire_count; ++i) {
         const SdlWire *wire = &circuit->wires[i];
@@ -225,6 +290,12 @@ void sdl_circuit_render(SDL_Renderer *renderer,
     for (i = 0; i < circuit->part_count; ++i) {
         sdl_part_render(renderer, &circuit->parts[i]);
     }
+
+    SDL_RenderSetScale(renderer, 1.0f, 1.0f);
+    SDL_RenderSetViewport(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, running ? 35 : 80,
+                          running ? 115 : 80, running ? 60 : 80, 255);
+    SDL_RenderFillRect(renderer, &state_bar);
     SDL_RenderPresent(renderer);
 }
 

@@ -21,6 +21,9 @@ static bool loaded;
 static uint64_t last_edge_cycle[4];
 static double pin_frequency[4];
 static double pin_duty[4];
+static bool breakpoints[PIC10_MAX_PROGRAM_WORDS];
+static bool breakpoint_hit;
+static int resume_breakpoint = -1;
 
 static void print_json_string(const char *text)
 {
@@ -64,6 +67,8 @@ static void print_state(bool include_flash)
            cpu.gpio_latch, cpu.tris_gpio, cpu.option, cpu.config_word,
            cpu.sleeping ? "true" : "false",
            cpu.stopped ? "true" : "false");
+    printf(",\"breakpointHit\":%s",
+           breakpoint_hit ? "true" : "false");
     fputs(",\"pinFrequency\":[", stdout);
     for (i = 0; i < 4; ++i) {
         if (i != 0) putchar(',');
@@ -132,12 +137,25 @@ static void execute_cycles(uint64_t requested)
     uint64_t target = cpu.cycles + requested;
     uint64_t high_cycles[4] = {0, 0, 0, 0};
     uint64_t measured_cycles = 0;
+    bool skip_current =
+        resume_breakpoint >= 0 && (unsigned)resume_breakpoint == cpu.pc;
+    breakpoint_hit = false;
+    resume_breakpoint = -1;
     while (!cpu.stopped && cpu.cycles < target) {
         uint8_t old_gpio = pic10_gpio_value(&cpu);
         uint64_t before = cpu.cycles;
-        unsigned consumed = pic10_step_cycles(&cpu);
-        uint8_t changed = (uint8_t)(old_gpio ^ pic10_gpio_value(&cpu));
+        unsigned consumed;
+        uint8_t changed;
         unsigned pin;
+        if (cpu.pc < PIC10_MAX_PROGRAM_WORDS &&
+            breakpoints[cpu.pc] && !skip_current) {
+            breakpoint_hit = true;
+            resume_breakpoint = (int)cpu.pc;
+            break;
+        }
+        skip_current = false;
+        consumed = pic10_step_cycles(&cpu);
+        changed = (uint8_t)(old_gpio ^ pic10_gpio_value(&cpu));
         if (consumed == 0) break;
         measured_cycles += consumed;
         for (pin = 0; pin < 4; ++pin) {
@@ -161,6 +179,23 @@ static void execute_cycles(uint64_t requested)
                 (double)high_cycles[pin] / (double)measured_cycles;
         }
     }
+}
+
+static void set_breakpoints(const char *list)
+{
+    const char *cursor = list;
+    memset(breakpoints, 0, sizeof(breakpoints));
+    while (cursor != NULL && *cursor != '\0') {
+        char *end;
+        unsigned long address = strtoul(cursor, &end, 0);
+        if (end == cursor) break;
+        if (address < PIC10_MAX_PROGRAM_WORDS) {
+            breakpoints[address] = true;
+        }
+        cursor = *end == ',' ? end + 1 : NULL;
+    }
+    breakpoint_hit = false;
+    resume_breakpoint = -1;
 }
 
 static char *next_field(char **cursor)
@@ -207,6 +242,9 @@ int main(void)
                 memset(last_edge_cycle, 0, sizeof(last_edge_cycle));
                 memset(pin_frequency, 0, sizeof(pin_frequency));
                 memset(pin_duty, 0, sizeof(pin_duty));
+                memset(breakpoints, 0, sizeof(breakpoints));
+                breakpoint_hit = false;
+                resume_breakpoint = -1;
                 loaded = true;
                 print_state(true);
             }
@@ -217,6 +255,8 @@ int main(void)
             memset(last_edge_cycle, 0, sizeof(last_edge_cycle));
             memset(pin_frequency, 0, sizeof(pin_frequency));
             memset(pin_duty, 0, sizeof(pin_duty));
+            breakpoint_hit = false;
+            resume_breakpoint = -1;
             print_state(false);
         } else if (strcmp(command, "step") == 0) {
             unsigned mask = (unsigned)strtoul(
@@ -224,6 +264,8 @@ int main(void)
             unsigned values = (unsigned)strtoul(
                 next_field(&cursor), NULL, 0);
             apply_inputs(mask, values);
+            breakpoint_hit = false;
+            resume_breakpoint = -1;
             pic10_step(&cpu);
             print_state(false);
         } else if (strcmp(command, "run") == 0) {
@@ -239,6 +281,9 @@ int main(void)
             print_state(false);
         } else if (strcmp(command, "flash") == 0) {
             print_state(true);
+        } else if (strcmp(command, "breakpoints") == 0) {
+            set_breakpoints(next_field(&cursor));
+            print_state(false);
         } else {
             print_error("未知的Web后端命令");
         }

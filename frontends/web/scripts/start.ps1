@@ -7,9 +7,14 @@ $ErrorActionPreference = "Stop"
 $WebRoot = Split-Path -Parent $PSScriptRoot
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $WebRoot)
 
-# 所有构建和启动逻辑都在 start.sh；这里仅负责把 Windows 参数交给 WSL。
-& wsl.exe --cd $RepoRoot bash -ic 'exec "$@"' bash `
-    ./frontends/web/scripts/start.sh --example $Example --port "$Port"
-if ($LASTEXITCODE -ne 0) {
-    throw "Web server exited with code $LASTEXITCODE."
+# start.sh is the single source of build and launch behavior.
+# Interactive bash loads the XC8 PATH configured in .bashrc.
+& wsl.exe "--cd" "$RepoRoot" "bash" "-i" `
+    "./frontends/web/scripts/start.sh" "--example" "$Example" `
+    "--port" "$Port"
+$ExitCode = $LASTEXITCODE
+
+# Ctrl+C / terminal shutdown through WSL may be reported as -1, 130 or 255.
+if ($ExitCode -notin @(0, -1, 130, 255)) {
+    throw "Web server exited with code $ExitCode."
 }

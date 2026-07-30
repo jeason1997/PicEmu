@@ -32,8 +32,7 @@
     <div class="file-actions">
       <select id="exampleSelect" title="示例"></select>
       <button id="loadExampleBtn">打开示例</button>
-      <button id="hexBtn">设置 HEX</button>
-      <button id="exportBtn">导出 JSON</button>
+      <button id="saveDiagramBtn" disabled>保存电路</button>
       <input id="hexInput" type="file" accept=".hex" hidden>
       <input id="diagramInput" type="file" accept=".json" hidden>
     </div>
@@ -77,8 +76,11 @@
       <div class="stage-toolbar">
         <span id="diagramName">未命名电路</span>
         <button id="openDiagramBtn">打开 JSON</button>
+        <button id="undoBtn" title="撤销 Ctrl+Z" disabled>↶</button>
+        <button id="redoBtn" title="重做 Ctrl+Y" disabled>↷</button>
+        <button id="restoreDraftBtn" title="恢复浏览器自动保存的草稿" disabled>恢复草稿</button>
         <button id="deleteBtn">删除选中</button>
-        <span class="zoom-label">滚轮缩放 · 中键拖动画布</span>
+        <span class="zoom-label">左键框选 · 滚轮缩放 · 中键拖动画布</span>
         <button id="zoomOutBtn" title="缩小">−</button>
         <button id="zoomResetBtn" title="恢复100%"><span id="zoomValue">100%</span></button>
         <button id="zoomInBtn" title="放大">＋</button>
@@ -108,19 +110,24 @@
         <button class="tab" data-tab="part">器件</button>
       </div>
       <div id="cpuPanel" class="tab-panel active">
-        <div class="hero-value"><small>PROGRAM COUNTER</small><b id="pcValue">0x000</b></div>
+        <div class="hero-value"><small>PROGRAM COUNTER · <span id="activeMcuLabel">MCU</span></small><b id="pcValue">0x000</b></div>
         <div id="registerGrid" class="register-grid"></div>
         <h3>STATUS</h3>
         <div id="flags" class="flags"></div>
         <h3>硬件栈</h3>
         <div id="stackView" class="stack-view"></div>
+        <h3>GPIO 引脚</h3>
+        <div id="gpioStates" class="gpio-states"></div>
       </div>
       <div id="ramPanel" class="tab-panel">
         <div class="memory-head"><span>地址</span><span>00 01 02 03 04 05 06 07</span></div>
         <div id="ramGrid" class="memory-grid"></div>
       </div>
       <div id="flashPanel" class="tab-panel">
-        <div class="memory-head"><span>程序存储器</span><span>地址 / 机器码 / 指令</span></div>
+        <div class="memory-head">
+          <span>程序存储器 · 单击切换断点</span>
+          <label><input id="followPc" type="checkbox" checked> 跟随 PC</label>
+        </div>
         <div id="flashGrid" class="flash-grid"></div>
       </div>
       <div id="partPanel" class="tab-panel">

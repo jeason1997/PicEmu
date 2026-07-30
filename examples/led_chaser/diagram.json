@@ -7,7 +7,10 @@
       "id": "mcu",
       "type": "pic10f200",
       "left": 400,
-      "top": 150
+      "top": 150,
+      "attrs": {
+        "firmware": "examples/led_chaser/build/firmware.hex"
+      }
     },
     {
       "id": "led_gp0",
@@ -22,7 +25,7 @@
       "id": "led_gp1",
       "type": "led",
       "left": 170,
-      "top": 300,
+      "top": 320,
       "attrs": {
         "color": "green"
       }
@@ -30,16 +33,31 @@
     {
       "id": "led_gp2",
       "type": "led",
-      "left": 800,
-      "top": 300,
+      "left": 860,
+      "top": 320,
       "attrs": {
         "color": "blue"
       }
     }
   ],
   "connections": [
-    ["mcu:GP0", "led_gp0:A", "red", []],
-    ["mcu:GP1", "led_gp1:A", "green", []],
-    ["mcu:GP2", "led_gp2:A", "blue", []]
+    [
+      "mcu:GP0",
+      "led_gp0:A",
+      "red",
+      []
+    ],
+    [
+      "mcu:GP1",
+      "led_gp1:A",
+      "green",
+      []
+    ],
+    [
+      "mcu:GP2",
+      "led_gp2:A",
+      "blue",
+      []
+    ]
   ]
 }

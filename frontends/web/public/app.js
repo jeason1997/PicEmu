@@ -4,18 +4,28 @@ const stageSizer = $("#stageSizer");
 const stageViewport = $("#stageViewport");
 const partsLayer = $("#partsLayer");
 const wires = $("#wires");
-const STAGE_WIDTH = 1400;
-const STAGE_HEIGHT = 900;
+/*
+ * diagram.json 继续使用以电路为中心的普通坐标；画布内部额外增加一个很大的
+ * 虚拟原点。这样既不破坏 SDL 共用的坐标，又能向四个方向持续平移。
+ */
+const STAGE_WIDTH = 12000;
+const STAGE_HEIGHT = 8000;
+const ORIGIN_X = STAGE_WIDTH / 2;
+const ORIGIN_Y = STAGE_HEIGHT / 2;
 const GRID_SIZE = 20;
 const SNAP_SIZE = GRID_SIZE / 2;
 
 const model = {
   diagram: { version: 1, clockHz: 4000000, firmware: "", parts: [], connections: [] },
   state: null,
+  states: new Map(),
+  activeMcuId: null,
   flash: [],
   instructions: [],
+  breakpoints: new Map(),
   running: false,
   selected: null,
+  selectedIds: new Set(),
   selectedConnection: null,
   pendingPin: null,
   lastFrame: performance.now(),
@@ -24,17 +34,22 @@ const model = {
   audio: null,
   oscillator: null,
   gain: null,
-  zoom: 1
+  zoom: 1,
+  diagramName: "未命名电路",
+  diagramPath: null,
+  hexTargetId: null,
+  history: [],
+  historyIndex: -1
 };
 
 const pinDefs = {
   pic10f200: [
-    { name:"GP0", label:"1 GP0/ICSPDAT", side:"left", top:44, gpio:0 },
-    { name:"VSS", label:"2 VSS", side:"left", top:102 },
-    { name:"GP1", label:"3 GP1/ICSPCLK", side:"left", top:160, gpio:1 },
-    { name:"GP3", label:"6 GP3/MCLR/VPP", side:"right", top:44, gpio:3 },
-    { name:"VDD", label:"5 VDD", side:"right", top:102 },
-    { name:"GP2", label:"4 GP2/T0CKI/FOSC4", side:"right", top:160, gpio:2 }
+    { name:"GP0", label:"1 GP0/ICSPDAT", side:"left", top:38, gpio:0 },
+    { name:"VSS", label:"2 VSS", side:"left", top:98 },
+    { name:"GP1", label:"3 GP1/ICSPCLK", side:"left", top:158, gpio:1 },
+    { name:"GP3", label:"6 GP3/MCLR/VPP", side:"right", top:38, gpio:3 },
+    { name:"VDD", label:"5 VDD", side:"right", top:98 },
+    { name:"GP2", label:"4 GP2/T0CKI/FOSC4", side:"right", top:158, gpio:2 }
   ],
   led: [{ name:"A", gpio:null }],
   pushbutton: [{ name:"1", gpio:null }],
@@ -73,30 +88,126 @@ function partClass(type) {
 
 function pinKey(partId, pin) { return `${partId}:${pin}`; }
 function snap(value) { return Math.round(value / SNAP_SIZE) * SNAP_SIZE; }
+function stageX(worldX) { return worldX + ORIGIN_X; }
+function stageY(worldY) { return worldY + ORIGIN_Y; }
+function partSize(type) {
+  if (type === "pic10f200") return { width: 300, height: 240 };
+  if (type === "led") return { width: 48, height: 48 };
+  if (type === "pushbutton") return { width: 110, height: 60 };
+  return { width: 60, height: 60 };
+}
+function partTopLeft(part) {
+  const size = partSize(part.type);
+  if (part.type === "pic10f200") {
+    return { left: part.left, top: part.top };
+  }
+  return {
+    left: part.left - size.width / 2,
+    top: part.top - size.height / 2
+  };
+}
+function mcuParts() {
+  return model.diagram.parts.filter(part => part.type === "pic10f200");
+}
+function activeBreakpoints() {
+  const id = model.activeMcuId || "mcu";
+  if (!model.breakpoints.has(id)) model.breakpoints.set(id, new Set());
+  return model.breakpoints.get(id);
+}
+
+function selectActiveMcu(id) {
+  if (!id || model.activeMcuId === id) return;
+  model.activeMcuId = id;
+  const state = model.states.get(id);
+  if (state) setState(state);
+}
+function diagramSnapshot() {
+  return JSON.stringify(model.diagram,
+    (key, value) => key === "pressed" ? undefined : value);
+}
+
+function updateHistoryButtons() {
+  $("#undoBtn").disabled = model.historyIndex <= 0;
+  $("#redoBtn").disabled =
+    model.historyIndex < 0 ||
+    model.historyIndex >= model.history.length - 1;
+  $("#restoreDraftBtn").disabled =
+    localStorage.getItem("picemu.web.draft") === null;
+}
+
+function saveDraft() {
+  localStorage.setItem("picemu.web.draft", JSON.stringify({
+    name: model.diagramName,
+    path: model.diagramPath,
+    savedAt: new Date().toISOString(),
+    diagram: JSON.parse(diagramSnapshot())
+  }));
+  updateHistoryButtons();
+}
+
+function resetHistory() {
+  model.history = [diagramSnapshot()];
+  model.historyIndex = 0;
+  updateHistoryButtons();
+}
+
+function recordHistory() {
+  const snapshot = diagramSnapshot();
+  if (model.history[model.historyIndex] === snapshot) return;
+  model.history.splice(model.historyIndex + 1);
+  model.history.push(snapshot);
+  if (model.history.length > 100) model.history.shift();
+  else model.historyIndex++;
+  saveDraft();
+  updateHistoryButtons();
+}
+
+function moveHistory(offset) {
+  const next = model.historyIndex + offset;
+  if (next < 0 || next >= model.history.length) return;
+  model.historyIndex = next;
+  model.diagram = JSON.parse(model.history[next]);
+  model.selected = null;
+  model.selectedIds.clear();
+  model.selectedConnection = null;
+  renderAll();
+  saveDraft();
+  updateHistoryButtons();
+  message(offset < 0 ? "已撤销" : "已重做");
+}
 
 function devicePortSide(part) {
-  const endpoint = `${part.id}:${part.type === "led" ? "A" : "1"}`;
-  const connection = model.diagram.connections.find(c => c.includes(endpoint));
-  let target = null;
+  const pinName = part.type === "led" ? "A" : "1";
+  const endpoint = `${part.id}:${pinName}`;
+  const connection = model.diagram.connections.find(item =>
+    item[0] === endpoint || item[1] === endpoint);
   if (connection) {
-    const other = connection.find(value => value !== endpoint);
-    const targetId = other?.split(":")[0];
-    target = model.diagram.parts.find(item => item.id === targetId);
+    const otherEndpoint = connection[0] === endpoint
+      ? connection[1] : connection[0];
+    const otherId = otherEndpoint.split(":")[0];
+    const other = model.diagram.parts.find(item => item.id === otherId);
+    if (other) {
+      const ownCenter = part.left;
+      const otherPosition = partTopLeft(other);
+      const otherSize = partSize(other.type);
+      const otherCenter = otherPosition.left + otherSize.width / 2;
+      return otherCenter < ownCenter ? "left" : "right";
+    }
   }
-  target ||= model.diagram.parts.find(item => item.type === "pic10f200");
-  if (!target) return "right";
-  const targetCenter = target.left +
-    (target.type === "pic10f200" ? 130 : 31);
-  const partCenter = part.left + (part.type === "led" ? 27 : 31);
-  return targetCenter < partCenter ? "left" : "right";
+  return part.type === "led" ? "right" : "left";
+}
+
+function devicePortYOffset(part) {
+  return partSize(part.type).height / 2;
 }
 
 function renderPart(part) {
   const el = document.createElement("div");
   el.className = `part ${partClass(part.type)}`;
   el.dataset.id = part.id;
-  el.style.left = `${part.left}px`;
-  el.style.top = `${part.top}px`;
+  const position = partTopLeft(part);
+  el.style.left = `${stageX(position.left)}px`;
+  el.style.top = `${stageY(position.top)}px`;
   if (part.type === "led") {
     el.classList.add(part.attrs?.color || "red");
   }
@@ -128,6 +239,7 @@ function renderPart(part) {
 
   el.querySelectorAll(".device-pin").forEach(pin => {
     pin.classList.add(`port-${devicePortSide(part)}`);
+    pin.style.top = `${devicePortYOffset(part) - 6}px`;
     pin.addEventListener("pointerdown", event => {
       event.stopPropagation(); selectPin(part, pin.dataset.pin, pin);
     });
@@ -152,15 +264,16 @@ function pinPoint(endpoint) {
     const pin = pinDefs.pic10f200.find(item => item.name === pinName);
     if (!pin) return null;
     return {
-      x: part.left + (pin.side === "left" ? -12 : 272),
-      y: part.top + pin.top + 12
+      x: stageX(part.left) + (pin.side === "left" ? -6 : 306),
+      y: stageY(part.top) + pin.top + 12
     };
   }
-  const width = part.type === "led" ? 54 : 62;
+  const size = partSize(part.type);
   const side = devicePortSide(part);
   return {
-    x: part.left + (side === "left" ? -7 : width + 7),
-    y: part.top + 26
+    x: stageX(part.left) +
+      (side === "left" ? -size.width / 2 : size.width / 2),
+    y: stageY(part.top)
   };
 }
 
@@ -179,6 +292,7 @@ function renderWires() {
     path.addEventListener("pointerdown", event => {
       event.stopPropagation();
       model.selected = null;
+      model.selectedIds.clear();
       model.selectedConnection = index;
       updateSelection();
       renderWires();
@@ -205,6 +319,7 @@ function selectPin(part, pin, element) {
       model.diagram.connections.push([
         model.pendingPin.endpoint, endpoint, "#55aaff", []
       ]);
+      recordHistory();
     }
   }
   model.pendingPin = null;
@@ -216,23 +331,64 @@ function selectPin(part, pin, element) {
 function beginPartDrag(event, part, el) {
   if (event.button !== 0 || event.target.matches(".pin,.device-pin")) return;
   event.preventDefault();
-  model.selected = part.id; updateSelection(); showPartInspector(part);
+  const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+  if (additive) {
+    if (model.selectedIds.has(part.id)) {
+      model.selectedIds.delete(part.id);
+      model.selected = [...model.selectedIds].at(-1) || null;
+      updateSelection();
+      if (model.selectedIds.size === 1) {
+        showPartInspector(model.diagram.parts.find(
+          item => item.id === model.selected));
+      }
+      return;
+    }
+    model.selectedIds.add(part.id);
+  } else if (!model.selectedIds.has(part.id)) {
+    model.selectedIds.clear();
+    model.selectedIds.add(part.id);
+  }
+  model.selected = part.id;
+  updateSelection();
+  if (model.selectedIds.size === 1) showPartInspector(part);
+  if (part.type === "pic10f200") selectActiveMcu(part.id);
   model.selectedConnection = null;
   const startX = event.clientX, startY = event.clientY;
-  const left = part.left, top = part.top;
+  const starts = new Map(model.diagram.parts
+    .filter(item => model.selectedIds.has(item.id))
+    .map(item => [item.id, { left: item.left, top: item.top }]));
+  let finished = false;
   if (part.type === "pushbutton") {
     part.pressed = true;
     el.classList.add("pressed");
   }
   el.setPointerCapture(event.pointerId);
   const move = e => {
-    part.left = snap(left + (e.clientX - startX) / model.zoom);
-    part.top = snap(top + (e.clientY - startY) / model.zoom);
-    el.style.left = `${part.left}px`; el.style.top = `${part.top}px`;
+    const dx = snap((e.clientX - startX) / model.zoom);
+    const dy = snap((e.clientY - startY) / model.zoom);
+    for (const item of model.diagram.parts) {
+      const origin = starts.get(item.id);
+      if (!origin) continue;
+      item.left = origin.left + dx;
+      item.top = origin.top + dy;
+      const itemElement = document.querySelector(
+        `.part[data-id="${CSS.escape(item.id)}"]`);
+      const position = partTopLeft(item);
+      if (itemElement) {
+        itemElement.style.left = `${stageX(position.left)}px`;
+        itemElement.style.top = `${stageY(position.top)}px`;
+      }
+    }
+    const positionInput = $("#propPosition");
+    if (positionInput && model.selectedIds.size === 1) {
+      positionInput.value = `${part.left}, ${part.top}`;
+    }
     renderPortDirections();
     renderWires();
   };
   const up = () => {
+    if (finished) return;
+    finished = true;
     if (part.type === "pushbutton") {
       part.pressed = false;
       el.classList.remove("pressed");
@@ -240,10 +396,14 @@ function beginPartDrag(event, part, el) {
     el.removeEventListener("pointermove", move);
     el.removeEventListener("pointerup", up);
     el.removeEventListener("pointercancel", up);
+    window.removeEventListener("pointerup", up);
+    const origin = starts.get(part.id);
+    if (part.left !== origin.left || part.top !== origin.top) recordHistory();
   };
   el.addEventListener("pointermove", move);
   el.addEventListener("pointerup", up);
   el.addEventListener("pointercancel", up);
+  window.addEventListener("pointerup", up);
 }
 
 function renderPortDirections() {
@@ -254,12 +414,13 @@ function renderPortDirections() {
     if (!pin) continue;
     pin.classList.remove("port-left", "port-right");
     pin.classList.add(`port-${devicePortSide(part)}`);
+    pin.style.top = `${devicePortYOffset(part) - 6}px`;
   }
 }
 
 function updateSelection() {
   document.querySelectorAll(".part").forEach(el =>
-    el.classList.toggle("selected", el.dataset.id === model.selected));
+    el.classList.toggle("selected", model.selectedIds.has(el.dataset.id)));
 }
 
 function uniqueId(type) {
@@ -282,29 +443,99 @@ stageViewport.addEventListener("drop", event => {
   const rect = stageViewport.getBoundingClientRect();
   const part = {
     id: uniqueId(type), type,
-    left: snap(Math.max(20,
-      (stageViewport.scrollLeft + event.clientX - rect.left) / model.zoom)),
-    top: snap(Math.max(20,
-      (stageViewport.scrollTop + event.clientY - rect.top) / model.zoom))
+    left: snap(
+      (stageViewport.scrollLeft + event.clientX - rect.left) / model.zoom -
+      ORIGIN_X),
+    top: snap(
+      (stageViewport.scrollTop + event.clientY - rect.top) / model.zoom -
+      ORIGIN_Y)
   };
   if (type === "led") part.attrs = { color: "red" };
   if (type === "pushbutton") part.attrs = { activeLow: true };
   model.diagram.parts.push(part);
+  if (type === "pic10f200") selectActiveMcu(part.id);
+  model.selectedIds.clear();
+  model.selectedIds.add(part.id);
   model.selected = part.id; renderAll(); showPartInspector(part);
+  recordHistory();
 });
 
 stageViewport.addEventListener("pointerdown", event => {
   if (event.button !== 0 ||
       event.target.closest?.(".part") ||
       event.target.closest?.(".wire")) return;
-  model.selected = null;
-  model.selectedConnection = null;
-  if (model.pendingPin) {
-    model.pendingPin.element.classList.remove("connecting");
-    model.pendingPin = null;
-  }
-  updateSelection();
-  renderWires();
+  event.preventDefault();
+  const rect = stageViewport.getBoundingClientRect();
+  const start = {
+    x: (stageViewport.scrollLeft + event.clientX - rect.left) / model.zoom,
+    y: (stageViewport.scrollTop + event.clientY - rect.top) / model.zoom
+  };
+  const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+  const marquee = document.createElement("div");
+  marquee.className = "selection-marquee";
+  marquee.style.left = `${start.x}px`;
+  marquee.style.top = `${start.y}px`;
+  stage.appendChild(marquee);
+  stageViewport.setPointerCapture(event.pointerId);
+
+  const move = e => {
+    const x = (stageViewport.scrollLeft + e.clientX - rect.left) / model.zoom;
+    const y = (stageViewport.scrollTop + e.clientY - rect.top) / model.zoom;
+    marquee.style.left = `${Math.min(start.x, x)}px`;
+    marquee.style.top = `${Math.min(start.y, y)}px`;
+    marquee.style.width = `${Math.abs(x - start.x)}px`;
+    marquee.style.height = `${Math.abs(y - start.y)}px`;
+  };
+  const up = e => {
+    const x = (stageViewport.scrollLeft + e.clientX - rect.left) / model.zoom;
+    const y = (stageViewport.scrollTop + e.clientY - rect.top) / model.zoom;
+    const box = {
+      left: Math.min(start.x, x) - ORIGIN_X,
+      top: Math.min(start.y, y) - ORIGIN_Y,
+      right: Math.max(start.x, x) - ORIGIN_X,
+      bottom: Math.max(start.y, y) - ORIGIN_Y
+    };
+    if (!additive) model.selectedIds.clear();
+    if (Math.abs(x - start.x) >= 3 || Math.abs(y - start.y) >= 3) {
+      for (const part of model.diagram.parts) {
+        const position = partTopLeft(part);
+        const size = partSize(part.type);
+        if (position.left <= box.right &&
+            position.left + size.width >= box.left &&
+            position.top <= box.bottom &&
+            position.top + size.height >= box.top) {
+          model.selectedIds.add(part.id);
+        }
+      }
+    }
+    model.selected = [...model.selectedIds].at(-1) || null;
+    model.selectedConnection = null;
+    if (model.pendingPin) {
+      model.pendingPin.element.classList.remove("connecting");
+      model.pendingPin = null;
+    }
+    marquee.remove();
+    stageViewport.removeEventListener("pointermove", move);
+    stageViewport.removeEventListener("pointerup", up);
+    stageViewport.removeEventListener("pointercancel", cancel);
+    updateSelection();
+    renderWires();
+    if (model.selectedIds.size === 1) {
+      showPartInspector(model.diagram.parts.find(
+        part => part.id === model.selected));
+    } else if (model.selectedIds.size > 1) {
+      message(`已选择 ${model.selectedIds.size} 个器件`);
+    }
+  };
+  const cancel = () => {
+    marquee.remove();
+    stageViewport.removeEventListener("pointermove", move);
+    stageViewport.removeEventListener("pointerup", up);
+    stageViewport.removeEventListener("pointercancel", cancel);
+  };
+  stageViewport.addEventListener("pointermove", move);
+  stageViewport.addEventListener("pointerup", up);
+  stageViewport.addEventListener("pointercancel", cancel);
 });
 
 function setZoom(nextZoom, clientX, clientY) {
@@ -337,24 +568,22 @@ function fitDiagram() {
   }
   let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
   for (const part of model.diagram.parts) {
-    const width = part.type === "pic10f200" ? 260
-      : part.type === "led" ? 54 : 62;
-    const height = part.type === "pic10f200" ? 206
-      : part.type === "led" ? 80 : 72;
-    minX = Math.min(minX, part.left);
-    minY = Math.min(minY, part.top);
-    maxX = Math.max(maxX, part.left + width);
-    maxY = Math.max(maxY, part.top + height);
+    const size = partSize(part.type);
+    const position = partTopLeft(part);
+    minX = Math.min(minX, position.left);
+    minY = Math.min(minY, position.top);
+    maxX = Math.max(maxX, position.left + size.width);
+    maxY = Math.max(maxY, position.top + size.height);
   }
   const margin = 80;
   const zoom = Math.min(1,
     (stageViewport.clientWidth - margin) / (maxX - minX),
     (stageViewport.clientHeight - margin) / (maxY - minY));
   setZoom(Math.max(0.35, zoom));
-  stageViewport.scrollLeft =
-    ((minX + maxX) / 2) * model.zoom - stageViewport.clientWidth / 2;
-  stageViewport.scrollTop =
-    ((minY + maxY) / 2) * model.zoom - stageViewport.clientHeight / 2;
+  stageViewport.scrollLeft = stageX((minX + maxX) / 2) * model.zoom -
+    stageViewport.clientWidth / 2;
+  stageViewport.scrollTop = stageY((minY + maxY) / 2) * model.zoom -
+    stageViewport.clientHeight / 2;
 }
 
 stageViewport.addEventListener("wheel", event => {
@@ -393,9 +622,10 @@ $("#zoomInBtn").addEventListener("click", () => setZoom(model.zoom * 1.2));
 $("#zoomResetBtn").addEventListener("click", () => setZoom(1));
 $("#zoomFitBtn").addEventListener("click", fitDiagram);
 
-function inputState() {
+function inputState(mcuId = model.activeMcuId) {
   let mask = 0, values = 0;
-  const mcu = model.diagram.parts.find(p => p.type === "pic10f200");
+  const mcu = model.diagram.parts.find(
+    p => p.type === "pic10f200" && p.id === mcuId);
   if (!mcu) return { inputMask: 0, inputValues: 0 };
   for (const part of model.diagram.parts.filter(p => p.type === "pushbutton")) {
     const connection = model.diagram.connections.find(c =>
@@ -411,18 +641,28 @@ function inputState() {
   return { inputMask: mask, inputValues: values };
 }
 
-async function command(commandName, extra = {}) {
+async function command(commandName, extra = {}, mcuId = model.activeMcuId) {
   const result = await post("/api/command", {
-    command: commandName, ...inputState(), ...extra
+    command: commandName, mcuId, ...inputState(mcuId), ...extra
   });
   setState(result);
   return result;
 }
 
 function setState(state) {
-  model.state = state;
-  if (state.flash) model.flash = state.flash;
-  if (state.instructions) model.instructions = state.instructions;
+  const mcuId = state.mcuId || model.activeMcuId || "mcu";
+  const merged = { ...(model.states.get(mcuId) || {}), ...state, mcuId };
+  model.states.set(mcuId, merged);
+  if (!model.activeMcuId) model.activeMcuId = mcuId;
+  if (mcuId !== model.activeMcuId) {
+    updatePartsFromState();
+    return;
+  }
+  model.state = merged;
+  $("#activeMcuLabel").textContent = mcuId;
+  if (merged.flash) model.flash = merged.flash;
+  if (merged.instructions) model.instructions = merged.instructions;
+  state = merged;
   const instructionHz = Number(model.diagram.clockHz || 4000000) / 4;
   $("#simTime").textContent =
     `${(state.cycles / instructionHz * 1000).toFixed(3)} ms`;
@@ -440,6 +680,14 @@ function setState(state) {
     `<span class="flag ${state.status & (1 << bit) ? "on" : ""}">${name}</span>`).join("");
   $("#stackView").innerHTML = state.stack.map((value,index) =>
     `<div class="stack-entry">STACK ${index} <b>${hex(value,3)}</b></div>`).join("");
+  $("#gpioStates").innerHTML = [0, 1, 2, 3].map(pin => {
+    const input = pin === 3 || (state.tris & (1 << pin)) !== 0;
+    const high = (state.gpio & (1 << pin)) !== 0;
+    return `<div class="gpio-state"><b>GP${pin}</b>
+      <span class="${input ? "input" : "output"}">${
+        input ? "IN" : "OUT"}</span>
+      <span class="${high ? "high" : "low"}">${high ? "1" : "0"}</span></div>`;
+  }).join("");
   $("#ramGrid").innerHTML = state.ram.map((value,index) =>
     `<div class="mem-cell ${index <= 6 ? "sfr" : ""}" title="${hex(index)}">${hex(value).slice(2)}</div>`).join("");
   renderFlash();
@@ -459,37 +707,90 @@ function renderFlash() {
   grid.querySelector(".current")?.classList.remove("current");
   const current = grid.querySelector(`[data-address="${model.state?.pc}"]`);
   if (current) current.classList.add("current");
+  grid.querySelectorAll(".flash-word").forEach(row => {
+    row.classList.toggle("breakpoint",
+      activeBreakpoints().has(Number(row.dataset.address)));
+  });
+  if (current && $("#followPc").checked &&
+      document.querySelector('[data-tab="flash"]').classList.contains("active")) {
+    grid.scrollTop = current.offsetTop -
+      grid.clientHeight / 2 + current.offsetHeight / 2;
+  }
 }
 
-function connectedGpio(part) {
+$("#flashGrid").addEventListener("click", async event => {
+  const row = event.target.closest(".flash-word");
+  if (!row) return;
+  const address = Number(row.dataset.address);
+  const breakpoints = activeBreakpoints();
+  if (breakpoints.has(address)) breakpoints.delete(address);
+  else breakpoints.add(address);
+  renderFlash();
+  try {
+    await command("breakpoints", {
+      addresses: [...breakpoints].sort((a, b) => a - b)
+    });
+    message(`${hex(address, 3)} 断点已${
+      breakpoints.has(address) ? "设置" : "取消"}`);
+  } catch (error) {
+    message(error.message, true);
+  }
+});
+
+function connectedMcuPin(part) {
   const endpoint = `${part.id}:${part.type === "led" ? "A" : "1"}`;
   const connection = model.diagram.connections.find(c => c.includes(endpoint));
   if (!connection) return null;
   const other = connection.find(value => value !== endpoint && /:GP\d$/.test(value));
-  return other ? Number(other.match(/GP(\d)$/)[1]) : null;
+  if (!other) return null;
+  const [mcuId, pinName] = other.split(":");
+  return {
+    mcuId,
+    gpio: Number(pinName.match(/GP(\d)$/)[1]),
+    state: model.states.get(mcuId)
+  };
 }
 
 function updatePartsFromState() {
-  if (!model.state) return;
+  if (model.states.size === 0) return;
   for (const part of model.diagram.parts) {
     const el = document.querySelector(`.part[data-id="${CSS.escape(part.id)}"]`);
     if (!el) continue;
-    const gpio = connectedGpio(part);
-    if (part.type === "led" && gpio !== null) {
-      const duty = model.state.pinDuty?.[gpio] ??
-        ((model.state.gpio >> gpio) & 1);
+    const connection = connectedMcuPin(part);
+    if (part.type === "led" && connection?.state) {
+      const { gpio, state } = connection;
+      const duty = state.pinDuty?.[gpio] ?? ((state.gpio >> gpio) & 1);
       el.classList.toggle("lit", duty > 0.01);
       el.querySelector(".part-body").style.opacity =
         String(0.22 + Math.pow(duty, 0.55) * 0.78);
     }
+  }
+  for (const mcu of mcuParts()) {
+    const state = model.states.get(mcu.id);
+    if (!state) continue;
+    document.querySelectorAll(
+      `.part[data-id="${CSS.escape(mcu.id)}"] .pin[data-pin^='GP']`
+    ).forEach(pin => {
+      const number = Number(pin.dataset.pin.slice(2));
+      const input = number === 3 ||
+        (state.tris & (1 << number)) !== 0;
+      const high = (state.gpio & (1 << number)) !== 0;
+      pin.classList.toggle("gpio-input", input);
+      pin.classList.toggle("gpio-output", !input);
+      pin.classList.toggle("gpio-high", high);
+      pin.classList.toggle("gpio-low", !high);
+      pin.title = `${pin.dataset.pin}: ${input ? "输入" : "输出"}，电平 ${
+        high ? "高" : "低"}`;
+    });
   }
   updateBuzzer();
 }
 
 function updateBuzzer() {
   const buzzer = model.diagram.parts.find(p => p.type === "buzzer");
-  const gpio = buzzer ? connectedGpio(buzzer) : null;
-  const frequency = gpio === null ? 0 : model.state?.pinFrequency?.[gpio] || 0;
+  const connection = buzzer ? connectedMcuPin(buzzer) : null;
+  const frequency = connection?.state
+    ? connection.state.pinFrequency?.[connection.gpio] || 0 : 0;
   if (frequency > 30 && frequency < 12000 && model.running) {
     if (!model.audio) {
       const WebAudioContext = window.AudioContext || window.webkitAudioContext;
@@ -510,25 +811,54 @@ function updateBuzzer() {
   }
 }
 
-async function loadDiagram(diagram, name = "电路") {
+async function loadDiagram(diagram, name = "电路", diagramPath = null) {
   pause();
   model.diagram = diagram;
+  model.diagramName = name;
+  model.diagramPath = diagramPath;
+  model.states.clear();
+  model.state = null;
+  model.activeMcuId = null;
+  model.breakpoints.clear();
+  model.selected = null;
+  model.selectedIds.clear();
+  model.selectedConnection = null;
   model.diagram.parts ||= [];
   model.diagram.connections ||= [];
   $("#diagramName").textContent = name;
+  $("#saveDiagramBtn").disabled = diagramPath === null;
   renderAll();
+  resetHistory();
   requestAnimationFrame(fitDiagram);
-  const mcu = diagram.parts.find(p => p.type === "pic10f200");
-  if (!mcu || !diagram.firmware) {
+  const mcus = mcuParts();
+  if (mcus.length === 0) {
+    message("电路已载入；请添加 PIC 芯片");
+    return;
+  }
+  model.activeMcuId = mcus[0].id;
+  let requestedLoads = 0;
+  const loads = mcus.map((mcu, index) => {
+    mcu.attrs ||= {};
+    const firmware = mcu.attrs.firmware ||
+      (index === 0 ? diagram.firmware : "");
+    if (!firmware) return Promise.resolve(null);
+    requestedLoads++;
+    mcu.attrs.firmware = firmware;
+    return post("/api/load", {
+      mcuId: mcu.id,
+      firmware,
+      device: "PIC10F200"
+    });
+  });
+  if (requestedLoads === 0) {
     message("电路已载入；请设置HEX固件");
     return;
   }
   try {
-    const state = await post("/api/load", {
-      firmware: diagram.firmware, device: "PIC10F200"
-    });
-    setState(state);
-    message(`已加载 ${diagram.firmware}`);
+    const states = await Promise.all(loads);
+    states.filter(Boolean).forEach(setState);
+    const loaded = states.filter(Boolean).length;
+    message(`已加载 ${loaded} 个 MCU 固件`);
   } catch (error) {
     message(`固件加载失败：${error.message}`, true);
   }
@@ -538,7 +868,7 @@ async function openExample() {
   const path = $("#exampleSelect").value;
   if (!path) return;
   const diagram = await api(`/api/file?path=${encodeURIComponent(path)}`);
-  await loadDiagram(diagram, path.split("/")[1]);
+  await loadDiagram(diagram, path.split("/")[1], path);
 }
 
 function pause() {
@@ -549,7 +879,9 @@ function pause() {
 }
 
 $("#runBtn").addEventListener("click", async () => {
-  if (!model.state?.loaded) return message("请先加载HEX固件", true);
+  if (![...model.states.values()].some(state => state.loaded)) {
+    return message("请先为至少一个芯片加载HEX固件", true);
+  }
   model.running = true;
   model.lastFrame = performance.now();
   $("#runState").textContent = "运行中";
@@ -559,17 +891,30 @@ $("#runBtn").addEventListener("click", async () => {
 $("#pauseBtn").addEventListener("click", pause);
 $("#stepBtn").addEventListener("click", async () => {
   pause();
-  try { await command("step"); } catch (error) { message(error.message, true); }
+  try {
+    const before = model.state?.pc;
+    const instruction = Number.isInteger(before)
+      ? model.instructions[before] || "未知指令" : "未知指令";
+    const result = await command("step");
+    message(`单步 ${hex(before, 3)} ${instruction} → PC ${hex(result.pc, 3)}`);
+  } catch (error) { message(error.message, true); }
 });
 $("#resetBtn").addEventListener("click", async () => {
   pause();
-  try { await command("reset"); } catch (error) { message(error.message, true); }
+  try {
+    await Promise.all([...model.states.entries()]
+      .filter(([, state]) => state.loaded)
+      .map(([id]) => command("reset", {}, id)));
+  } catch (error) { message(error.message, true); }
 });
 
 async function frame(now) {
   const elapsed = Math.min(0.1, (now - model.lastFrame) / 1000);
   model.lastFrame = now;
-  if (model.running && model.state?.loaded && !model.requestPending) {
+  const loadedIds = [...model.states.entries()]
+    .filter(([, state]) => state.loaded)
+    .map(([id]) => id);
+  if (model.running && loadedIds.length > 0 && !model.requestPending) {
     const speed = Number($("#speedSelect").value);
     const instructionHz = Number(model.diagram.clockHz || 4000000) / 4;
     model.budget += elapsed * instructionHz * speed;
@@ -577,9 +922,17 @@ async function frame(now) {
     if (cycles > 0) {
       model.budget -= cycles; model.requestPending = true;
       try {
-        await command("run", { cycles });
-        if (model.state.stopped) {
-          pause(); message(model.state.stopReason || "CPU已停止", true);
+        const states = await Promise.all(
+          loadedIds.map(id => command("run", { cycles }, id)));
+        const breakpoint = states.find(state => state.breakpointHit);
+        const stopped = states.find(state => state.stopped);
+        if (breakpoint) {
+          pause();
+          message(`${breakpoint.mcuId} 断点命中：${hex(breakpoint.pc, 3)}`);
+        } else if (stopped) {
+          pause();
+          message(`${stopped.mcuId}: ${
+            stopped.stopReason || "CPU已停止"}`, true);
         }
       } catch (error) {
         pause(); message(error.message, true);
@@ -593,15 +946,21 @@ async function frame(now) {
 requestAnimationFrame(frame);
 
 function showPartInspector(part) {
-  document.querySelector('[data-tab="part"]').click();
   const attrs = part.attrs || (part.attrs = {});
+  const firstMcu = mcuParts()[0];
+  const firmware = attrs.firmware ||
+    (part === firstMcu ? model.diagram.firmware || "" : "");
   $("#partInspector").innerHTML = `
     <div class="property-row"><label>ID</label><input id="propId" value="${part.id}"></div>
     <div class="property-row"><label>类型</label><input value="${part.type}" disabled></div>
     ${part.type === "led" ? `<div class="property-row"><label>颜色</label>
       <select id="propColor"><option>red</option><option>green</option><option>blue</option><option>yellow</option></select></div>` : ""}
-    <div class="property-row"><label>位置</label><input value="${part.left}, ${part.top}" disabled></div>`;
-  $("#propId").addEventListener("change", event => {
+    ${part.type === "pic10f200" ? `<div class="property-row"><label>HEX 固件</label>
+      <input id="propFirmware" value="${firmware}" disabled>
+      <button id="propHexBtn" type="button">为 ${part.id} 设置 HEX</button>
+    </div>` : ""}
+    <div class="property-row"><label>位置</label><input id="propPosition" value="${part.left}, ${part.top}" disabled></div>`;
+  $("#propId").addEventListener("change", async event => {
     const old = part.id, value = event.target.value.trim();
     if (!value || model.diagram.parts.some(p => p !== part && p.id === value)) {
       event.target.value = old; return;
@@ -611,12 +970,48 @@ function showPartInspector(part) {
       c[0] = c[0].replace(`${old}:`, `${value}:`);
       c[1] = c[1].replace(`${old}:`, `${value}:`);
     });
+    if (part.type === "pic10f200") {
+      const oldState = model.states.get(old);
+      model.states.delete(old);
+      if (oldState) model.states.set(value, { ...oldState, mcuId: value });
+      const oldBreakpoints = model.breakpoints.get(old);
+      model.breakpoints.delete(old);
+      if (oldBreakpoints) model.breakpoints.set(value, oldBreakpoints);
+      if (model.activeMcuId === old) model.activeMcuId = value;
+      if (attrs.firmware) {
+        try {
+          setState(await post("/api/load", {
+            mcuId: value,
+            firmware: attrs.firmware,
+            device: "PIC10F200"
+          }));
+        } catch (error) {
+          message(error.message, true);
+        }
+      }
+    }
+    model.selectedIds.delete(old);
+    model.selectedIds.add(value);
     model.selected = value; renderAll();
+    recordHistory();
   });
   const color = $("#propColor");
   if (color) {
     color.value = attrs.color || "red";
-    color.addEventListener("change", e => { attrs.color = e.target.value; renderAll(); });
+    color.addEventListener("change", e => {
+      attrs.color = e.target.value;
+      renderAll();
+      recordHistory();
+    });
+  }
+  const hexButton = $("#propHexBtn");
+  if (hexButton) {
+    hexButton.addEventListener("click", () => {
+      model.hexTargetId = part.id;
+      selectActiveMcu(part.id);
+      $("#hexInput").value = "";
+      $("#hexInput").click();
+    });
   }
 }
 
@@ -624,6 +1019,7 @@ document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", (
   document.querySelectorAll(".tab,.tab-panel").forEach(item => item.classList.remove("active"));
   tab.classList.add("active");
   $(`#${tab.dataset.tab}Panel`).classList.add("active");
+  if (tab.dataset.tab === "flash") renderFlash();
 }));
 
 $("#deleteBtn").addEventListener("click", () => {
@@ -633,18 +1029,59 @@ $("#deleteBtn").addEventListener("click", () => {
     renderPortDirections();
     renderWires();
     message("已删除连线");
+    recordHistory();
     return;
   }
-  if (!model.selected) return;
-  const prefix = model.selected + ":";
-  model.diagram.parts = model.diagram.parts.filter(p => p.id !== model.selected);
-  model.diagram.connections = model.diagram.connections.filter(c =>
-    !c[0].startsWith(prefix) && !c[1].startsWith(prefix));
-  model.selected = null; renderAll();
+  if (model.selectedIds.size === 0) return;
+  const deletedIds = new Set(model.selectedIds);
+  const deleted = model.diagram.parts.filter(part =>
+    deletedIds.has(part.id));
+  model.diagram.parts = model.diagram.parts.filter(part =>
+    !deletedIds.has(part.id));
+  model.diagram.connections = model.diagram.connections.filter(connection =>
+    !connection.slice(0, 2).some(endpoint => [...deletedIds].some(
+      id => endpoint.startsWith(id + ":"))));
+  for (const part of deleted) {
+    if (part.type === "pic10f200") {
+      model.states.delete(part.id);
+      model.breakpoints.delete(part.id);
+    }
+  }
+  if (deletedIds.has(model.activeMcuId)) {
+    model.activeMcuId = mcuParts()[0]?.id || null;
+    model.state = model.activeMcuId
+      ? model.states.get(model.activeMcuId) || null : null;
+    if (model.state) setState(model.state);
+  }
+  model.selectedIds.clear();
+  model.selected = null;
+  renderAll();
+  message(`已删除 ${deleted.length} 个器件及相关连线`);
+  recordHistory();
+});
+$("#undoBtn").addEventListener("click", () => moveHistory(-1));
+$("#redoBtn").addEventListener("click", () => moveHistory(1));
+$("#restoreDraftBtn").addEventListener("click", async () => {
+  try {
+    const draft = JSON.parse(localStorage.getItem("picemu.web.draft"));
+    await loadDiagram(draft.diagram, `${draft.name || "电路"}（草稿）`,
+      draft.path || null);
+    message(`已恢复草稿：${new Date(draft.savedAt).toLocaleString()}`);
+  } catch (error) {
+    message(`恢复草稿失败：${error.message}`, true);
+  }
 });
 window.addEventListener("keydown", event => {
   if (event.target.matches("input,select,textarea")) return;
-  if (event.key === "Delete" || event.key === "Backspace") {
+  if ((event.ctrlKey || event.metaKey) &&
+      event.key.toLowerCase() === "z") {
+    event.preventDefault();
+    moveHistory(event.shiftKey ? 1 : -1);
+  } else if ((event.ctrlKey || event.metaKey) &&
+             event.key.toLowerCase() === "y") {
+    event.preventDefault();
+    moveHistory(1);
+  } else if (event.key === "Delete" || event.key === "Backspace") {
     event.preventDefault();
     $("#deleteBtn").click();
   } else if (event.key === "Escape" && model.pendingPin) {
@@ -659,23 +1096,44 @@ $("#diagramInput").addEventListener("change", async event => {
   const file = event.target.files[0];
   if (file) await loadDiagram(JSON.parse(await file.text()), file.name);
 });
-$("#hexBtn").addEventListener("click", () => $("#hexInput").click());
 $("#hexInput").addEventListener("change", async event => {
   const file = event.target.files[0];
-  if (!file) return;
+  const mcu = mcuParts().find(part => part.id === model.hexTargetId);
+  if (!file || !mcu) return;
   try {
     const state = await post("/api/upload-firmware", {
-      text: await file.text(), device: "PIC10F200"
+      mcuId: mcu.id,
+      text: await file.text(),
+      device: "PIC10F200"
     });
-    model.diagram.firmware = state.firmware;
-    setState(state); message(`已加载本地固件 ${file.name}`);
+    mcu.attrs ||= {};
+    mcu.attrs.firmware = state.firmware;
+    if (mcu === mcuParts()[0]) model.diagram.firmware = state.firmware;
+    recordHistory();
+    setState(state);
+    showPartInspector(mcu);
+    message(`${mcu.id} 已加载本地固件 ${file.name}`);
   } catch (error) { message(error.message, true); }
 });
-$("#exportBtn").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify(model.diagram, null, 2)], {type:"application/json"});
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob); link.download = "diagram.json"; link.click();
-  URL.revokeObjectURL(link.href);
+$("#saveDiagramBtn").addEventListener("click", async () => {
+  if (!model.diagramPath) {
+    return message("当前电路不是项目内示例，无法写回原文件", true);
+  }
+  try {
+    const firstMcu = mcuParts()[0];
+    if (firstMcu?.attrs?.firmware) {
+      model.diagram.firmware = firstMcu.attrs.firmware;
+    }
+    const diagram = JSON.parse(diagramSnapshot());
+    await post("/api/save-diagram", {
+      path: model.diagramPath,
+      diagram
+    });
+    resetHistory();
+    message(`已保存：${model.diagramPath}`);
+  } catch (error) {
+    message(`保存失败：${error.message}`, true);
+  }
 });
 $("#partSearch").addEventListener("input", event => {
   const query = event.target.value.toLowerCase();
@@ -684,6 +1142,7 @@ $("#partSearch").addEventListener("input", event => {
 });
 
 async function init() {
+  updateHistoryButtons();
   const result = await api("/api/examples");
   $("#exampleSelect").innerHTML = result.examples.map(example =>
     `<option value="${example.diagram}" ${example.name === result.initialExample ? "selected" : ""}>${example.name}</option>`).join("");

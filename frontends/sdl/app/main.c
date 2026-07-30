@@ -59,6 +59,14 @@ int main(int argc, char **argv)
     double cycle_budget = 0.0;
     double cycles_per_second;
     const double frames_per_second = 60.0;
+    float zoom = 1.0f;
+    int pan_x = 0;
+    int pan_y = 0;
+    bool panning = false;
+    int pan_start_x = 0;
+    int pan_start_y = 0;
+    int pan_origin_x = 0;
+    int pan_origin_y = 0;
 
     if (argc < 2 || argc > 3) {
         fprintf(stderr, "用法：%s circuit.json [firmware.hex]\n", argv[0]);
@@ -77,8 +85,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "加载HEX失败：%s\n", error);
         return EXIT_FAILURE;
     }
-    if (!sdl_circuit_init(&circuit, &config, &image,
-                          error, sizeof(error))) {
+    if (!(argc == 3
+              ? sdl_circuit_init_with_override(
+                    &circuit, &config, &image, error, sizeof(error))
+              : sdl_circuit_init(
+                    &circuit, &config, &image, error, sizeof(error)))) {
         fprintf(stderr, "创建电路失败：%s\n", error);
         return EXIT_FAILURE;
     }
@@ -144,11 +155,54 @@ int main(int argc, char **argv)
                     sdl_circuit_step(&circuit);
                 else if (event.key.keysym.sym == SDLK_r)
                     sdl_circuit_reset(&circuit);
+                else if (event.key.keysym.sym == SDLK_0) {
+                    zoom = 1.0f;
+                    pan_x = 0;
+                    pan_y = 0;
+                } else if (event.key.keysym.sym == SDLK_PLUS ||
+                           event.key.keysym.sym == SDLK_EQUALS ||
+                           event.key.keysym.sym == SDLK_KP_PLUS) {
+                    zoom = fminf(3.0f, zoom * 1.2f);
+                } else if (event.key.keysym.sym == SDLK_MINUS ||
+                           event.key.keysym.sym == SDLK_KP_MINUS) {
+                    zoom = fmaxf(0.2f, zoom / 1.2f);
+                }
+            } else if (event.type == SDL_MOUSEWHEEL) {
+                int mouse_x, mouse_y;
+                float old_zoom = zoom;
+                float world_x;
+                float world_y;
+                SDL_GetMouseState(&mouse_x, &mouse_y);
+                world_x = (mouse_x - pan_x) / old_zoom;
+                world_y = (mouse_y - pan_y) / old_zoom;
+                zoom = event.wheel.y > 0
+                    ? fminf(3.0f, zoom * 1.12f)
+                    : fmaxf(0.2f, zoom / 1.12f);
+                /* 缩放后保持鼠标指向的世界坐标不动。 */
+                pan_x = (int)(mouse_x - world_x * zoom);
+                pan_y = (int)(mouse_y - world_y * zoom);
+            } else if (event.type == SDL_MOUSEBUTTONDOWN &&
+                       event.button.button == SDL_BUTTON_MIDDLE) {
+                panning = true;
+                pan_start_x = event.button.x;
+                pan_start_y = event.button.y;
+                pan_origin_x = pan_x;
+                pan_origin_y = pan_y;
+            } else if (event.type == SDL_MOUSEMOTION && panning) {
+                pan_x = pan_origin_x +
+                    event.motion.x - pan_start_x;
+                pan_y = pan_origin_y +
+                    event.motion.y - pan_start_y;
+            } else if (event.type == SDL_MOUSEBUTTONUP &&
+                       event.button.button == SDL_BUTTON_MIDDLE) {
+                panning = false;
             } else if (event.type == SDL_MOUSEBUTTONDOWN &&
                        event.button.button == SDL_BUTTON_LEFT) {
                 float x, y;
                 SDL_RenderWindowToLogical(renderer, event.button.x,
                                           event.button.y, &x, &y);
+                x = (x - pan_x) / zoom;
+                y = (y - pan_y) / zoom;
                 sdl_circuit_mouse(&circuit, (int)x, (int)y, true);
             } else if (event.type == SDL_MOUSEBUTTONUP &&
                        event.button.button == SDL_BUTTON_LEFT) {
@@ -166,7 +220,7 @@ int main(int argc, char **argv)
             }
         }
         while (cycle_budget >= 1.0 &&
-               !sim_mcu_stopped(circuit.board.mcu)) {
+               !sdl_circuit_all_stopped(&circuit)) {
             unsigned consumed = sdl_circuit_step(&circuit);
             if (consumed == 0) {
                 cycle_budget = 0.0;
@@ -181,7 +235,8 @@ int main(int argc, char **argv)
 
         SDL_AtomicSet(&audio.frequency_hz,
                       (int)(sdl_circuit_buzzer_frequency(&circuit) + 0.5));
-        sdl_circuit_render(renderer, &circuit, running);
+        sdl_circuit_render(renderer, &circuit, running,
+                           zoom, pan_x, pan_y);
 
         next_frame_counter +=
             (Uint64)((double)counter_frequency / frames_per_second);

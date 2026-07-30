@@ -20,36 +20,55 @@ const initialExample = option(
 
 await fs.mkdir(path.join(buildRoot, "uploads"), { recursive: true });
 
-const backend = process.platform === "win32"
-  ? spawn("wsl.exe", [
-      "--cd", repoRoot, "bash", "-lc", "./build/picemu-web-core"
-    ], { stdio: ["pipe", "pipe", "inherit"] })
-  : spawn(path.join(repoRoot, "build", "picemu-web-core"), [], {
-      stdio: ["pipe", "pipe", "inherit"]
-    });
+const backends = new Map();
 
-const lines = readline.createInterface({ input: backend.stdout });
-const pending = [];
-lines.on("line", line => {
-  const request = pending.shift();
-  if (!request) return;
-  try {
-    request.resolve(JSON.parse(line));
-  } catch (error) {
-    request.reject(new Error(`后端返回了无效JSON：${line}`));
+function validMcuId(value) {
+  const id = String(value || "mcu");
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+    throw new Error(`无效的 MCU ID：${id}`);
   }
-});
-backend.on("exit", code => {
-  while (pending.length) {
-    pending.shift().reject(new Error(`仿真后端已退出：${code}`));
-  }
-});
+  return id;
+}
 
-function backendCommand(fields) {
-  return new Promise((resolve, reject) => {
-    pending.push({ resolve, reject });
-    backend.stdin.write(fields.join("\t") + "\n");
+function createBackend() {
+  const processHandle = process.platform === "win32"
+    ? spawn("wsl.exe", [
+        "--cd", repoRoot, "bash", "-lc", "./build/picemu-web-core"
+      ], { stdio: ["pipe", "pipe", "inherit"] })
+    : spawn(path.join(repoRoot, "build", "picemu-web-core"), [], {
+        stdio: ["pipe", "pipe", "inherit"]
+      });
+  const pending = [];
+  const lines = readline.createInterface({ input: processHandle.stdout });
+  lines.on("line", line => {
+    const request = pending.shift();
+    if (!request) return;
+    try {
+      request.resolve(JSON.parse(line));
+    } catch {
+      request.reject(new Error(`后端返回了无效 JSON：${line}`));
+    }
   });
+  processHandle.on("exit", code => {
+    while (pending.length) {
+      pending.shift().reject(new Error(`仿真后端已退出：${code}`));
+    }
+  });
+  return {
+    processHandle,
+    command(fields) {
+      return new Promise((resolve, reject) => {
+        pending.push({ resolve, reject });
+        processHandle.stdin.write(fields.join("\t") + "\n");
+      });
+    }
+  };
+}
+
+function backendCommand(mcuId, fields) {
+  const id = validMcuId(mcuId);
+  if (!backends.has(id)) backends.set(id, createBackend());
+  return backends.get(id).command(fields);
 }
 
 function json(response, status, value) {
@@ -136,22 +155,39 @@ async function api(request, response, url) {
   const value = body.length ? JSON.parse(body.toString("utf8")) : {};
 
   if (url.pathname === "/api/load") {
+    const mcuId = validMcuId(value.mcuId);
     const firmware = safeRepoPath(value.firmware);
-    const result = await backendCommand([
+    const result = await backendCommand(mcuId, [
       "load", backendPath(firmware), value.device || "PIC10F200"
     ]);
-    result.firmware = "build/web/uploads/firmware.hex";
+    result.mcuId = mcuId;
     return json(response, result.ok ? 200 : 400, result);
   }
   if (url.pathname === "/api/upload-firmware") {
-    const firmware = path.join(buildRoot, "uploads", "firmware.hex");
+    const mcuId = validMcuId(value.mcuId);
+    const firmware = path.join(buildRoot, "uploads", `${mcuId}.hex`);
     await fs.writeFile(firmware, value.text || "", "utf8");
-    const result = await backendCommand([
+    const result = await backendCommand(mcuId, [
       "load", backendPath(firmware), value.device || "PIC10F200"
     ]);
+    result.firmware = `build/web/uploads/${mcuId}.hex`;
+    result.mcuId = mcuId;
     return json(response, result.ok ? 200 : 400, result);
   }
+  if (url.pathname === "/api/save-diagram") {
+    const relative = String(value.path || "");
+    if (!relative.endsWith(".json")) {
+      return json(response, 400, {
+        ok: false, error: "电路文件必须使用 .json 扩展名"
+      });
+    }
+    const file = safeRepoPath(relative);
+    await fs.writeFile(file,
+      JSON.stringify(value.diagram, null, 2) + "\n", "utf8");
+    return json(response, 200, { ok: true, path: relative });
+  }
   if (url.pathname === "/api/command") {
+    const mcuId = validMcuId(value.mcuId);
     const command = value.command;
     let fields;
     if (command === "run") {
@@ -159,12 +195,17 @@ async function api(request, response, url) {
                 value.inputMask || 0, value.inputValues || 0];
     } else if (command === "step") {
       fields = ["step", value.inputMask || 0, value.inputValues || 0];
+    } else if (command === "breakpoints") {
+      const addresses = Array.isArray(value.addresses)
+        ? value.addresses.join(",") : "";
+      fields = ["breakpoints", addresses];
     } else if (["reset", "state", "flash"].includes(command)) {
       fields = [command];
     } else {
       return json(response, 400, { ok: false, error: "未知命令" });
     }
-    const result = await backendCommand(fields);
+    const result = await backendCommand(mcuId, fields);
+    result.mcuId = mcuId;
     return json(response, result.ok ? 200 : 400, result);
   }
   return false;
@@ -213,7 +254,9 @@ server.listen(port, "127.0.0.1", () => {
 });
 
 function shutdown() {
-  backend.kill();
+  for (const backend of backends.values()) {
+    backend.processHandle.kill();
+  }
   server.close(() => process.exit(0));
 }
 process.on("SIGINT", shutdown);

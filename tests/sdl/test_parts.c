@@ -126,12 +126,51 @@ static void test_shared_endpoint_circuit(void)
     CHECK(circuit.part_count == 0);
 }
 
+static void test_multiple_mcu_circuit(void)
+{
+    CircuitConfig config;
+    HexImage image;
+    SdlCircuit circuit;
+    char error[256];
+
+    memset(&config, 0, sizeof(config));
+    memset(&image, 0, sizeof(image));
+    config.version = 1;
+    config.clock_hz = 4000000u;
+    config.part_count = 4;
+    config.connection_count = 2;
+    config.parts[0] = part_config("mcu_a", "pic10f200");
+    config.parts[1] = part_config("led_a", "led");
+    config.parts[2] = part_config("mcu_b", "pic10f202");
+    config.parts[3] = part_config("led_b", "led");
+    snprintf(config.connections[0].from,
+             sizeof(config.connections[0].from), "mcu_a:GP0");
+    snprintf(config.connections[0].to,
+             sizeof(config.connections[0].to), "led_a:A");
+    snprintf(config.connections[1].from,
+             sizeof(config.connections[1].from), "mcu_b:GP1");
+    snprintf(config.connections[1].to,
+             sizeof(config.connections[1].to), "led_b:A");
+
+    CHECK(sdl_circuit_init(&circuit, &config, &image,
+                           error, sizeof(error)));
+    CHECK(circuit.mcu_count == 2);
+    CHECK(circuit.board.mcu_count == 2);
+    CHECK(circuit.part_mcus[0] != circuit.part_mcus[2]);
+    CHECK(circuit.board.nets[0].endpoints[0].target.mcu.mcu ==
+          circuit.part_mcus[0]);
+    CHECK(circuit.board.nets[1].endpoints[0].target.mcu.mcu ==
+          circuit.part_mcus[2]);
+    sdl_circuit_destroy(&circuit);
+}
+
 int main(void)
 {
     test_led_factory();
     test_button_mouse();
     test_pic_and_unknown_factory();
     test_shared_endpoint_circuit();
+    test_multiple_mcu_circuit();
 
     if (failures != 0) {
         fprintf(stderr, "SDL器件测试失败：%u项\n", failures);
