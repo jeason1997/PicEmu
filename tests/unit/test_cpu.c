@@ -376,6 +376,41 @@ static void test_fast_countdown_loop(void)
     CHECK(cpu.ram[0x10] == 0);
 }
 
+static void test_fast_xc8_postdecrement_loop(void)
+{
+    HexImage image = blank_image(false);
+    Pic10Cpu fast_cpu;
+    Pic10Cpu reference_cpu;
+    unsigned fast_cycles;
+
+    image.program[0] = 0xC01u; /* MOVLW 1 */
+    image.program[1] = 0x0B0u; /* SUBWF 0x10,F */
+    image.program[2] = 0x290u; /* INCF 0x10,W */
+    image.program[3] = 0x643u; /* BTFSC STATUS,Z */
+    image.program[4] = 0xA08u; /* GOTO 8 */
+    image.program[5] = 0x000u; /* NOP */
+    image.program[6] = 0xA00u; /* GOTO 0 */
+    image.program[8] = 0x000u; /* exit */
+
+    pic10_init(&fast_cpu, &image, &PIC_DEVICE_PIC10F200);
+    pic10_init(&reference_cpu, &image, &PIC_DEVICE_PIC10F200);
+    fast_cpu.ram[0x10] = 5;
+    reference_cpu.ram[0x10] = 5;
+
+    fast_cycles = pic10_step_cycles(&fast_cpu);
+    while (reference_cpu.pc != 8u) {
+        pic10_step(&reference_cpu);
+    }
+
+    CHECK(fast_cycles == 46u); /* 8 * 5 + 6 */
+    CHECK(fast_cpu.cycles == reference_cpu.cycles);
+    CHECK(fast_cpu.pc == reference_cpu.pc);
+    CHECK(fast_cpu.w == reference_cpu.w);
+    CHECK(fast_cpu.ram[0x10] == reference_cpu.ram[0x10]);
+    CHECK(fast_cpu.ram[PIC10_STATUS] ==
+          reference_cpu.ram[PIC10_STATUS]);
+}
+
 int main(void)
 {
     test_addwf_flags();
@@ -396,6 +431,7 @@ int main(void)
     test_network_merge();
     test_generic_circuit_properties();
     test_fast_countdown_loop();
+    test_fast_xc8_postdecrement_loop();
 
     if (failures != 0) {
         fprintf(stderr, "CPU单元测试失败：%u项\n", failures);

@@ -12,6 +12,28 @@
 #define STM32_CLOCK_MHZ 128
 #endif
 
+#ifndef STM32_LOG_ENABLED
+#define STM32_LOG_ENABLED 0
+#endif
+
+#if STM32_LOG_ENABLED != 0 && STM32_LOG_ENABLED != 1
+#error "STM32_LOG_ENABLED must be 0 or 1"
+#endif
+
+#if STM32_LOG_ENABLED
+#define LOG_PUTS(text) debug_uart_puts(text)
+#define LOG_PUT_U64(value) debug_uart_put_u64(value)
+#define LOG_FLUSH() debug_uart_flush()
+#else
+/*
+ * 日志关闭时这些宏不会计算参数，也不会留下串口轮询和整数格式化开销。
+ * debug_uart.c 仍可参与统一构建，但会被链接器的段回收彻底移除。
+ */
+#define LOG_PUTS(text) ((void)0)
+#define LOG_PUT_U64(value) ((void)0)
+#define LOG_FLUSH() ((void)0)
+#endif
+
 #if STM32_CLOCK_MHZ != 16 && STM32_CLOCK_MHZ != 24 && \
     STM32_CLOCK_MHZ != 32 && STM32_CLOCK_MHZ != 40 && \
     STM32_CLOCK_MHZ != 48 && STM32_CLOCK_MHZ != 56 && \
@@ -66,24 +88,26 @@ enum {
 
 static Pic10Cpu pic_cpu;
 static PicHardwareBridge gpio_bridge;
+#if STM32_LOG_ENABLED
 static bool gp0_log_initialized;
 static bool gp0_last_level;
 static uint32_t timestamp_last_dwt;
 static uint32_t timestamp_elapsed_ms;
 static uint32_t timestamp_remainder_ticks;
+#endif
 
 static void clock_init(void)
 {
     RCC->CR |= RCC_CR_HSION;
     while ((RCC->CR & RCC_CR_HSIRDY) == 0) {
     }
-    debug_uart_puts("[boot] HSI ready\n");
+    LOG_PUTS("[boot] HSI ready\n");
 
     FLASH_REGS->ACR = FLASH_ACR_PRFTBE | STM32_FLASH_LATENCY;
     RCC->CR |= RCC_CR_HSEON;
     while ((RCC->CR & RCC_CR_HSERDY) == 0) {
     }
-    debug_uart_puts("[boot] HSE ready\n");
+    LOG_PUTS("[boot] HSE ready\n");
     /*
      * 此时USART1仍依赖8MHz APB2。先只配置PLL源和倍频，不提前设置
      * APB2分频，否则“PLL locked”日志会暂时从115200降成57600波特。
@@ -93,8 +117,8 @@ static void clock_init(void)
     RCC->CR |= RCC_CR_PLLON;
     while ((RCC->CR & RCC_CR_PLLRDY) == 0) {
     }
-    debug_uart_puts("[boot] PLL locked\n");
-    debug_uart_flush();
+    LOG_PUTS("[boot] PLL locked\n");
+    LOG_FLUSH();
     /*
      * 串口最后一个停止位发送完毕后再设置总线分频。随后立即切换SYSCLK，
      * 并按照所选频率对应的APB2时钟重新配置USART1。
@@ -103,13 +127,15 @@ static void clock_init(void)
     RCC->CFGR |= RCC_CFGR_SW_PLL;
     while ((RCC->CFGR & (3u << 2)) != RCC_CFGR_SWS_PLL) {
     }
+#if STM32_LOG_ENABLED
     debug_uart_init(STM32_APB2_HZ);
-    debug_uart_puts("[boot] system clock ");
-    debug_uart_put_u64(STM32_CLOCK_MHZ);
+#endif
+    LOG_PUTS("[boot] system clock ");
+    LOG_PUT_U64(STM32_CLOCK_MHZ);
 #if STM32_CLOCK_MHZ > 72
-    debug_uart_puts(" MHz (overclock)\n");
+    LOG_PUTS(" MHz (overclock)\n");
 #else
-    debug_uart_puts(" MHz\n");
+    LOG_PUTS(" MHz\n");
 #endif
 }
 
@@ -118,11 +144,14 @@ static void cycle_counter_init(void)
     CORE_DEMCR |= CORE_DEMCR_TRCENA;
     DWT_CYCCNT = 0;
     DWT_CTRL |= DWT_CTRL_CYCCNTENA;
+#if STM32_LOG_ENABLED
     timestamp_last_dwt = DWT_CYCCNT;
     timestamp_elapsed_ms = 0;
     timestamp_remainder_ticks = 0;
+#endif
 }
 
+#if STM32_LOG_ENABLED
 static uint32_t timestamp_ms(void)
 {
     uint32_t now = DWT_CYCCNT;
@@ -142,6 +171,7 @@ static uint32_t timestamp_ms(void)
     timestamp_remainder_ticks %= ticks_per_ms;
     return timestamp_elapsed_ms;
 }
+#endif
 
 static void gpio_enable_clock(Stm32Gpio *gpio)
 {
@@ -192,16 +222,18 @@ static void platform_write_pin(void *context, unsigned pin, bool high)
     mapping->gpio->BSRR = physical_high
         ? (1u << mapping->pin) : (1u << (mapping->pin + 16u));
 
+#if STM32_LOG_ENABLED
     if (pin == 0u &&
         (!gp0_log_initialized || gp0_last_level != high)) {
         gp0_log_initialized = true;
         gp0_last_level = high;
-        debug_uart_puts("[gpio t=");
-        debug_uart_put_u64(timestamp_ms());
-        debug_uart_puts(" ms pic=");
-        debug_uart_put_u64(pic_cpu.cycles);
-        debug_uart_puts(high ? "] GP0=1\n" : "] GP0=0\n");
+        LOG_PUTS("[gpio t=");
+        LOG_PUT_U64(timestamp_ms());
+        LOG_PUTS(" ms pic=");
+        LOG_PUT_U64(pic_cpu.cycles);
+        LOG_PUTS(high ? "] GP0=1\n" : "] GP0=0\n");
     }
+#endif
 }
 
 static bool platform_read_pin(void *context, unsigned pin)
@@ -232,15 +264,17 @@ int main(void)
     unsigned gpio_poll_cycles = 0;
     uint32_t next_deadline;
 
+#if STM32_LOG_ENABLED
     debug_uart_init(8000000u);
-    debug_uart_puts("\n[boot] reset handler entered\n");
+#endif
+    LOG_PUTS("\n[boot] reset handler entered\n");
     clock_init();
     cycle_counter_init();
-    debug_uart_puts("[boot] DWT cycle counter enabled\n");
+    LOG_PUTS("[boot] DWT cycle counter enabled\n");
 
     pic10_init(&pic_cpu, &pic_firmware_image, &PIC_DEVICE_PIC10F200);
     pic_hardware_bridge_init(&gpio_bridge, &pic_cpu, &STM32_PLATFORM);
-    debug_uart_puts("[boot] PIC10F200 initialized\n");
+    LOG_PUTS("[boot] PIC10F200 initialized\n");
     next_deadline = DWT_CYCCNT;
     pic_hardware_bridge_sync(&gpio_bridge);
 

@@ -4,27 +4,52 @@
 
 #pragma config WDTE = OFF
 
-/*
- * GP0 软件 PWM 呼吸灯。
- *
- * 每个亮度台阶保持若干个 PWM 周期，随后逐渐增加或减少占空比。
- * Tang Nano 1K 顶层把 GP0 映射到板载红色 LED；同一份 HEX 在 SDL
- * 中也会根据占空比显示渐亮和渐灭。
- */
-static void pwm_level(unsigned char on_ticks, unsigned char off_ticks)
+enum {
+    /*
+     * 4～252 共 63 个亮度台阶，每级保持 8 个 PWM 周期。
+     *
+     * 旧示例只有 9 个亮度级，并且每级停留较久，因此肉眼会看到明显的
+     * “走台阶”。这里把分辨率提高到原来的约 7 倍，同时缩短每级停留
+     * 时间，让亮度连续变化。
+     */
+    PWM_STEP = 4,
+    PWM_LEVEL_FRAMES = 8
+};
+
+/* 在当前占空比下输出若干个周期的软件 PWM。 */
+static void pwm_level(unsigned char duty)
 {
-    unsigned char frames = 80;
+    unsigned char frames = PWM_LEVEL_FRAMES;
     unsigned char delay;
+
+    /*
+     * duty=0 必须单独处理。如果仍先把 GPIO 置 1，即使延时变量为 0，
+     * GPIO 写指令和循环开销也会形成窄脉冲；真实 LED 在暗处对这些脉冲
+     * 很敏感，看起来就会像“最低还有一半亮度”。
+     *
+     * 最暗端保持约 0.1 秒，让 LED 确实完全熄灭后再开始下一次渐亮。
+     */
+    if (duty == 0) {
+        GPIO = 0;
+        frames = 48;
+        while (frames--) {
+            delay = 255;
+            while (delay--) {
+                __asm("nop");
+            }
+        }
+        return;
+    }
 
     while (frames--) {
         GPIO = 1;
-        delay = on_ticks;
+        delay = duty;
         while (delay--) {
             __asm("nop");
         }
 
         GPIO = 0;
-        delay = off_ticks;
+        delay = (unsigned char)(255u - duty);
         while (delay--) {
             __asm("nop");
         }
@@ -33,28 +58,28 @@ static void pwm_level(unsigned char on_ticks, unsigned char off_ticks)
 
 void main(void)
 {
+    unsigned char duty = PWM_STEP;
+    unsigned char rising = 1;
+
     TRISGPIO = 0b111110; /* 只有 GP0 作为输出 */
     GPIO = 0;
 
     while (1) {
-        /* 渐亮。每组之和保持 256，使 PWM 频率基本不变。 */
-        pwm_level(8,   248);
-        pwm_level(32,  224);
-        pwm_level(64,  192);
-        pwm_level(96,  160);
-        pwm_level(128, 128);
-        pwm_level(160, 96);
-        pwm_level(192, 64);
-        pwm_level(224, 32);
-        pwm_level(248, 8);
+        pwm_level(duty);
 
-        /* 渐灭，不重复最亮和最暗台阶。 */
-        pwm_level(224, 32);
-        pwm_level(192, 64);
-        pwm_level(160, 96);
-        pwm_level(128, 128);
-        pwm_level(96,  160);
-        pwm_level(64,  192);
-        pwm_level(32,  224);
+        if (rising) {
+            if (duty >= (unsigned char)(255u - PWM_STEP)) {
+                rising = 0;
+            } else {
+                duty += PWM_STEP;
+            }
+        } else {
+            if (duty <= PWM_STEP) {
+                duty = 0;
+                rising = 1;
+            } else {
+                duty -= PWM_STEP;
+            }
+        }
     }
 }

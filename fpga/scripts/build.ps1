@@ -1,12 +1,22 @@
 param(
-    [string]$Firmware = "examples\blink\build\firmware.hex",
-    [string]$OssCadSuite = $env:OSS_CAD_SUITE
+    [string]$Firmware,
+    [string]$OssCadSuite
 )
 
 $ErrorActionPreference = "Stop"
 
+$FpgaRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = Split-Path -Parent $FpgaRoot
+. (Join-Path $PSScriptRoot "config.ps1")
+
+if ([string]::IsNullOrWhiteSpace($Firmware)) {
+    $Firmware = $FpgaConfig.DefaultFirmware
+}
 if ([string]::IsNullOrWhiteSpace($OssCadSuite)) {
-    $OssCadSuite = "E:\oss-cad-suite"
+    $OssCadSuite = $env:OSS_CAD_SUITE
+}
+if ([string]::IsNullOrWhiteSpace($OssCadSuite)) {
+    $OssCadSuite = $FpgaConfig.DefaultOssCadSuite
 }
 
 $Bin = Join-Path $OssCadSuite "bin"
@@ -32,9 +42,7 @@ if (-not (Test-Path -LiteralPath $NextPnrHimbaechel)) {
 }
 $NextPnr = $NextPnrHimbaechel
 
-$FpgaRoot = Split-Path -Parent $PSScriptRoot
-$RepoRoot = Split-Path -Parent $FpgaRoot
-$BuildDir = Join-Path $FpgaRoot "build\pic10f200"
+$BuildDir = Join-Path $FpgaRoot $FpgaConfig.BuildRelativePath
 $TopFile = Join-Path $FpgaRoot "boards\tang_nano_1k\pic10f200_top.v"
 $ClockEnableFile = Join-Path $FpgaRoot "rtl\common\clock_enable.v"
 $SynchronizerFile = Join-Path $FpgaRoot "rtl\common\input_synchronizer.v"
@@ -44,7 +52,7 @@ $ConstraintFile = Join-Path $FpgaRoot "boards\tang_nano_1k\tang_nano_1k.cst"
 $Converter = Join-Path $FpgaRoot "tools\hex_to_mem.py"
 $SynthJson = Join-Path $BuildDir "pic10f200.json"
 $PnrJson = Join-Path $BuildDir "pic10f200_pnr.json"
-$Bitstream = Join-Path $BuildDir "pic10f200.fs"
+$Bitstream = Join-Path $BuildDir $FpgaConfig.BitstreamName
 $MemoryFile = Join-Path $BuildDir "firmware.mem"
 
 if (-not [System.IO.Path]::IsPathRooted($Firmware)) {
@@ -83,15 +91,15 @@ try {
     & $NextPnr `
         --json $SynthJson `
         --write $PnrJson `
-        --freq 27 `
-        --device "GW1NZ-LV1QN48C6/I5" `
+        --freq $FpgaConfig.TargetFrequencyMHz `
+        --device $FpgaConfig.NextPnrDevice `
         --vopt "cst=$ConstraintFile"
     if ($LASTEXITCODE -ne 0) {
         throw "nextpnr-himbaechel failed (exit code $LASTEXITCODE)."
     }
 
     Write-Host "[4/4] Generating bitstream with Apicula..."
-    & $GowinPack -d "GW1NZ-1" -o $Bitstream $PnrJson
+    & $GowinPack -d $FpgaConfig.GowinPackDevice -o $Bitstream $PnrJson
     if ($LASTEXITCODE -ne 0) {
         throw "gowin_pack failed (exit code $LASTEXITCODE)."
     }

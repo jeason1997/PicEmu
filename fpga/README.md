@@ -116,6 +116,11 @@ $env:OSS_CAD_SUITE = "D:\tools\oss-cad-suite"
 
 ## 构建与测试
 
+构建和烧录脚本共同读取
+[`scripts/config.ps1`](scripts/config.ps1)。开发板、FPGA器件、目标频率、
+构建目录、位流名称和默认固件只在该文件维护一份；`build.ps1`与
+`program.ps1`不再分别保存这些配置。
+
 运行与固件无关的 CPU 核心测试：
 
 ```powershell

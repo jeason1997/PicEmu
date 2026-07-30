@@ -1,15 +1,25 @@
 param(
-    [string]$Firmware = "examples\blink\build\firmware.hex",
+    [string]$Firmware,
     [string]$Example,
     [switch]$SkipBuild,
     [switch]$Volatile,
-    [string]$OssCadSuite = $env:OSS_CAD_SUITE
+    [string]$OssCadSuite
 )
 
 $ErrorActionPreference = "Stop"
 
+$FpgaRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = Split-Path -Parent $FpgaRoot
+. (Join-Path $PSScriptRoot "config.ps1")
+
+if ([string]::IsNullOrWhiteSpace($Firmware)) {
+    $Firmware = $FpgaConfig.DefaultFirmware
+}
 if ([string]::IsNullOrWhiteSpace($OssCadSuite)) {
-    $OssCadSuite = "E:\oss-cad-suite"
+    $OssCadSuite = $env:OSS_CAD_SUITE
+}
+if ([string]::IsNullOrWhiteSpace($OssCadSuite)) {
+    $OssCadSuite = $FpgaConfig.DefaultOssCadSuite
 }
 
 $Bin = Join-Path $OssCadSuite "bin"
@@ -17,10 +27,9 @@ $Lib = Join-Path $OssCadSuite "lib"
 $PyBin = Join-Path $OssCadSuite "py3bin"
 $env:PATH = "$Bin;$Lib;$PyBin;$env:PATH"
 
-$FpgaRoot = Split-Path -Parent $PSScriptRoot
-$RepoRoot = Split-Path -Parent $FpgaRoot
 $Loader = Join-Path $OssCadSuite "bin\openFPGALoader.exe"
-$Bitstream = Join-Path $FpgaRoot "build\pic10f200\pic10f200.fs"
+$BuildDir = Join-Path $FpgaRoot $FpgaConfig.BuildRelativePath
+$Bitstream = Join-Path $BuildDir $FpgaConfig.BitstreamName
 
 if (-not (Test-Path -LiteralPath $Loader)) {
     throw "openFPGALoader not found: $Loader"
@@ -84,11 +93,11 @@ if (-not (Test-Path -LiteralPath $Bitstream)) {
 
 if ($Volatile) {
     Write-Host "Programming Tang Nano 1K SRAM (volatile test mode)..."
-    & $Loader -b tangnano1k $Bitstream
+    & $Loader -b $FpgaConfig.OpenFpgaLoaderBoard $Bitstream
 }
 else {
     Write-Host "Programming Tang Nano 1K internal configuration Flash..."
-    & $Loader -b tangnano1k -f $Bitstream
+    & $Loader -b $FpgaConfig.OpenFpgaLoaderBoard -f $Bitstream
     if ($LASTEXITCODE -ne 0) {
         throw "Persistent Flash programming failed (exit code $LASTEXITCODE)."
     }
@@ -100,7 +109,7 @@ else {
     仍会自动加载。
     #>
     Write-Host "Loading the same bitstream into FPGA SRAM for immediate start..."
-    & $Loader -b tangnano1k $Bitstream
+    & $Loader -b $FpgaConfig.OpenFpgaLoaderBoard $Bitstream
 }
 if ($LASTEXITCODE -ne 0) {
     throw "Programming failed (exit code $LASTEXITCODE)."

@@ -559,6 +559,7 @@ unsigned pic10_step_cycles(Pic10Cpu *cpu)
     uint16_t pc;
     uint16_t instruction;
     uint16_t next_instruction;
+    uint16_t loop_instruction;
     uint8_t file;
 
     /*
@@ -583,6 +584,60 @@ unsigned pic10_step_cycles(Pic10Cpu *cpu)
         file = (uint8_t)(instruction & 0x1Fu);
         next_instruction = (uint16_t)(
             cpu->program[(pc + 1u) & program_mask(cpu)] & 0x0FFFu);
+
+        /*
+         * XC8 2.x会把某些“while (value--) { nop; }”编译成下面的循环：
+         *
+         *   MOVLW  1
+         *   SUBWF  file,F
+         *   INCF   file,W
+         *   BTFSC  STATUS,Z
+         *   GOTO   exit
+         *   NOP
+         *   GOTO   loop
+         *
+         * 每次执行循环体消耗8周期，最后一次条件失败消耗6周期。这个模式
+         * 正是软件PWM延时的热点；在不能批处理时，Cortex-M3需要解释七条
+         * 指令，无法维持1 MHz PIC实时速度。
+         *
+         * 只有关闭WDT且Timer0使用外部时钟时才合并，因此跳过的中间状态
+         * 不会遗漏任何按周期运行的片上外设。外部GPIO也不在该模式中访问。
+         */
+        if (instruction == 0xC01u &&
+            (next_instruction & 0xFE0u) == 0x0A0u &&
+            (next_instruction & 0x020u) != 0) {
+            uint16_t incf = (uint16_t)(
+                cpu->program[(pc + 2u) & program_mask(cpu)] & 0x0FFFu);
+            uint16_t btfsc = (uint16_t)(
+                cpu->program[(pc + 3u) & program_mask(cpu)] & 0x0FFFu);
+            uint16_t exit_goto = (uint16_t)(
+                cpu->program[(pc + 4u) & program_mask(cpu)] & 0x0FFFu);
+            uint16_t nop = (uint16_t)(
+                cpu->program[(pc + 5u) & program_mask(cpu)] & 0x0FFFu);
+
+            loop_instruction = (uint16_t)(
+                cpu->program[(pc + 6u) & program_mask(cpu)] & 0x0FFFu);
+            file = (uint8_t)(next_instruction & 0x1Fu);
+            if (file >= gpr_start(cpu) &&
+                incf == (uint16_t)(0x280u | file) &&
+                btfsc == 0x643u &&
+                (exit_goto & 0xE00u) == 0xA00u &&
+                nop == 0x000u &&
+                (loop_instruction & 0xE00u) == 0xA00u &&
+                (loop_instruction & 0x1FFu) == pc) {
+                iterations = cpu->ram[file];
+                cycles = iterations * 8u + 6u;
+                cpu->w = 0;
+                cpu->ram[file] = 0xFFu;
+                set_status_bit(cpu, PIC10_STATUS_C, false);
+                set_status_bit(cpu, PIC10_STATUS_DC, false);
+                set_status_bit(cpu, PIC10_STATUS_Z, true);
+                cpu->pc = (uint16_t)(
+                    (exit_goto & 0x1FFu) & program_mask(cpu));
+                cpu->cycles += cycles;
+                return cycles;
+            }
+        }
 
         if ((instruction & 0xFC0u) == 0x2C0u &&
             BIT(instruction, 5) &&
