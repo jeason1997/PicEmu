@@ -3,10 +3,11 @@
 PicEmu 是一个使用 C11 编写的 PIC10F200/PIC10F202 教学模拟器，可在Linux下通过
 GCC 编译，直接执行 MPLAB XC8 生成的 Intel HEX 固件。
 
-项目包含两个入口：
+项目包含三个入口：
 
 - `build/picemu`：命令行执行、反汇编、断点、引脚事件和 VCD 波形；
 - `build/picemu-sdl`：由 JSON 配置电路的 SDL2 交互式仿真界面。
+- Web 电路实验台：可拖放器件、连线、载入 HEX，并查看寄存器、RAM 和 Flash。
 
 ## 快速开始
 
@@ -29,6 +30,12 @@ make run-sdl EXAMPLE=led_chaser
 make run-sdl EXAMPLE=playmusic
 ```
 
+在 Windows PowerShell 启动 Web 仿真器：
+
+```powershell
+.\frontends\web\scripts\start.ps1 -Example button
+```
+
 手动运行：
 
 ```sh
@@ -44,6 +51,7 @@ make run-sdl EXAMPLE=playmusic
 - [PIC10F200引脚与功能](docs/pic10f200.md)
 - [命令行模拟器](docs/cli.md)
 - [SDL界面与JSON电路配置](docs/sdl-circuits.md)
+- [Web电路仿真器](docs/web-simulator.md)
 - [在Linux下编译PIC固件](docs/firmware.md)
 - [测试、功能范围与限制](docs/testing.md)
 - [移植到STM32F103](docs/ports/stm32f103.md)

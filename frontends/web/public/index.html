@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PicEmu Web Lab</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">P</span>
+      <div><strong>PicEmu</strong><small>WEB CIRCUIT LAB</small></div>
+    </div>
+    <div class="transport">
+      <button id="runBtn" class="primary">▶ 运行</button>
+      <button id="pauseBtn">Ⅱ 暂停</button>
+      <button id="stepBtn">↦ 单步</button>
+      <button id="resetBtn">↺ 复位</button>
+      <span class="divider"></span>
+      <label>速度
+        <select id="speedSelect">
+          <option value="0.25">0.25×</option>
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1× 实时</option>
+          <option value="2">2×</option>
+          <option value="10">10×</option>
+        </select>
+      </label>
+      <span id="runState" class="status paused">已暂停</span>
+    </div>
+    <div class="file-actions">
+      <select id="exampleSelect" title="示例"></select>
+      <button id="loadExampleBtn">打开示例</button>
+      <button id="hexBtn">设置 HEX</button>
+      <button id="exportBtn">导出 JSON</button>
+      <input id="hexInput" type="file" accept=".hex" hidden>
+      <input id="diagramInput" type="file" accept=".json" hidden>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="palette">
+      <div class="panel-title">器件库</div>
+      <div class="search">⌕ <input id="partSearch" placeholder="搜索器件"></div>
+      <div class="palette-group">
+        <h3>微控制器</h3>
+        <div class="palette-item" draggable="true" data-type="pic10f200">
+          <span class="part-icon chip-icon"></span>
+          <div><b>PIC10F200</b><small>6-Pin MCU</small></div>
+        </div>
+      </div>
+      <div class="palette-group">
+        <h3>输出器件</h3>
+        <div class="palette-item" draggable="true" data-type="led">
+          <span class="part-icon led-icon"></span>
+          <div><b>LED</b><small>红 / 绿 / 蓝 / 黄</small></div>
+        </div>
+        <div class="palette-item" draggable="true" data-type="buzzer">
+          <span class="part-icon buzzer-icon">◉</span>
+          <div><b>蜂鸣器</b><small>无源蜂鸣器</small></div>
+        </div>
+      </div>
+      <div class="palette-group">
+        <h3>输入器件</h3>
+        <div class="palette-item" draggable="true" data-type="pushbutton">
+          <span class="part-icon button-icon">↧</span>
+          <div><b>按键</b><small>按住产生低电平</small></div>
+        </div>
+      </div>
+      <div class="palette-help">
+        拖到画布添加器件。点击一个引脚，再点击另一个引脚完成连线。
+      </div>
+    </aside>
+
+    <section class="stage-shell">
+      <div class="stage-toolbar">
+        <span id="diagramName">未命名电路</span>
+        <button id="openDiagramBtn">打开 JSON</button>
+        <button id="deleteBtn">删除选中</button>
+        <span class="zoom-label">滚轮缩放 · 中键拖动画布</span>
+        <button id="zoomOutBtn" title="缩小">−</button>
+        <button id="zoomResetBtn" title="恢复100%"><span id="zoomValue">100%</span></button>
+        <button id="zoomInBtn" title="放大">＋</button>
+        <button id="zoomFitBtn" title="显示全部器件">适应</button>
+      </div>
+      <div id="stageViewport" class="stage-viewport">
+        <div id="stageSizer" class="stage-sizer">
+          <div id="stage" class="stage">
+            <svg id="wires" class="wires"></svg>
+            <div id="partsLayer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sim-footer">
+        <span>仿真时间 <b id="simTime">0.000 ms</b></span>
+        <span>周期 <b id="cycleCount">0</b></span>
+        <span>PC <b id="footerPc">0x000</b></span>
+        <span id="message">请选择示例开始</span>
+      </div>
+    </section>
+
+    <aside class="inspector">
+      <div class="tabs">
+        <button class="tab active" data-tab="cpu">CPU</button>
+        <button class="tab" data-tab="ram">RAM</button>
+        <button class="tab" data-tab="flash">程序</button>
+        <button class="tab" data-tab="part">器件</button>
+      </div>
+      <div id="cpuPanel" class="tab-panel active">
+        <div class="hero-value"><small>PROGRAM COUNTER</small><b id="pcValue">0x000</b></div>
+        <div id="registerGrid" class="register-grid"></div>
+        <h3>STATUS</h3>
+        <div id="flags" class="flags"></div>
+        <h3>硬件栈</h3>
+        <div id="stackView" class="stack-view"></div>
+      </div>
+      <div id="ramPanel" class="tab-panel">
+        <div class="memory-head"><span>地址</span><span>00 01 02 03 04 05 06 07</span></div>
+        <div id="ramGrid" class="memory-grid"></div>
+      </div>
+      <div id="flashPanel" class="tab-panel">
+        <div class="memory-head"><span>程序存储器</span><span>地址 / 机器码 / 指令</span></div>
+        <div id="flashGrid" class="flash-grid"></div>
+      </div>
+      <div id="partPanel" class="tab-panel">
+        <div id="partInspector" class="empty-state">点击画布中的器件查看属性</div>
+      </div>
+    </aside>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

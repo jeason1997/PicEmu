@@ -7,6 +7,7 @@ OBJECT_DIR := $(BUILD_DIR)/obj
 TARGET := $(BUILD_DIR)/picemu
 SDL_TARGET := $(BUILD_DIR)/picemu-sdl
 HEX2C_TARGET := $(BUILD_DIR)/hex2c
+WEB_CORE_TARGET := $(BUILD_DIR)/picemu-web-core
 UNIT_TEST := $(BUILD_DIR)/tests/test_cpu
 SDL_PART_TEST := $(BUILD_DIR)/tests/test_sdl_parts
 EXAMPLE ?= button
@@ -71,9 +72,11 @@ SDL_PART_TEST_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
 	frontends/sdl/circuit/sdl_circuit.o $(SDL_PART_SOURCES:.c=.o))
 HEX2C_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
 	tools/hex2c.o src/firmware/hex_loader.o)
+WEB_CORE_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
+	frontends/web/backend/main.o $(CORE_SOURCES:.c=.o))
 
 ALL_OBJECTS := $(sort $(CLI_OBJECTS) $(SDL_OBJECTS) \
-	$(UNIT_TEST_OBJECTS) $(HEX2C_OBJECTS))
+	$(UNIT_TEST_OBJECTS) $(HEX2C_OBJECTS) $(WEB_CORE_OBJECTS))
 ALL_OBJECTS += $(SDL_PART_TEST_OBJECTS)
 DEPFILES := $(ALL_OBJECTS:.o=.d)
 
@@ -81,7 +84,7 @@ SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
 
 .PHONY: all clean firmware example-firmware run test unit-test sdl-part-test integration-test \
-	sdl run-sdl tools stm32 stm32-host-check stm32-host-test
+	sdl run-sdl tools web web-core run-web stm32 stm32-host-check stm32-host-test
 
 all: $(TARGET)
 
@@ -128,6 +131,17 @@ $(HEX2C_TARGET): $(HEX2C_OBJECTS)
 
 tools: $(HEX2C_TARGET)
 
+$(WEB_CORE_TARGET): $(WEB_CORE_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+web-core: $(WEB_CORE_TARGET)
+
+web: web-core
+
+run-web:
+	sh frontends/web/scripts/start.sh --example "$(EXAMPLE)"
+
 $(UNIT_TEST): $(UNIT_TEST_OBJECTS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -152,8 +166,11 @@ $(SDL_PART_TEST): $(SDL_PART_TEST_OBJECTS)
 sdl-part-test: $(SDL_PART_TEST)
 	$(SDL_PART_TEST)
 
-integration-test: all firmware
+integration-test: all web-core firmware
 	sh tests/integration/test_examples.sh "$(abspath $(TARGET))"
+	sh tests/integration/test_web_backend.sh \
+		"$(abspath $(WEB_CORE_TARGET))" \
+		"$(abspath examples/button/build/firmware.hex)"
 
 test: unit-test sdl-part-test integration-test
 
