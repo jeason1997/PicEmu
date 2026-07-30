@@ -1,63 +1,102 @@
-# Tang Nano 1K FPGA 实现
+# Tang Nano 1K 上的 PIC10F200
 
-这里用于逐步在 Tang Nano 1K（GW1NZ-LV1QN48C6/I5）上实现
-PIC10F200。当前第一阶段是验证 Windows 下的开源 FPGA 工具链、板级时钟、
-按键和 LED 引脚，尚未包含 PIC CPU 核心。
+本目录是在 Tang Nano 1K（GW1NZ-LV1QN48C6/I5）中实现 PIC10F200 的
+FPGA 版本。它会加载 XC8 编译生成的 Intel HEX，转换为 FPGA 程序 ROM，
+然后由 Verilog CPU 核心取指和执行，不是把示例行为写死在 RTL 中。
 
-## 目录
+## 当前阶段
+
+第一阶段已经可以在实板运行 `examples/blink/build/firmware.hex`：
+
+- 12 位指令取指和译码；
+- 8 位 W、PC 和 STATUS；
+- GPIO 输出锁存器和 TRIS 方向控制；
+- GP3 固定输入；
+- XC8 一秒 blink 使用的三个 GPR（`0x10`～`0x12`）；
+- NOP、TRIS、MOVWF、CLRF、DECFSZ、GOTO、MOVLW；
+- 跳转和成功跳过指令的第二个指令周期；
+- 27 MHz FPGA 时钟产生精确的 1 MHz PIC 指令周期。
+
+这还是逐步实现中的核心。目前程序 ROM 窗口为 64 字，尚未实现全部 16 字节
+RAM、完整指令集、两级栈、Timer0、WDT、SLEEP 和外部 T0CKI。HEX 转换器会
+拒绝超出当前容量或包含未实现指令的固件，避免静默执行错误。
+
+## 引脚映射
+
+| PIC10F200 | Tang Nano 1K | 功能 |
+|---|---:|---|
+| GP0 | pin 9 | 红色 LED |
+| GP1 | pin 10 | 蓝色 LED |
+| GP2 | pin 11 | 绿色 LED |
+| GP3 | pin 13 / BTN1 | PIC 输入 |
+| 复位 | pin 44 / BTN2 | FPGA/PIC 核心复位 |
+| 时钟 | pin 47 | 板载 27 MHz |
+
+板载 RGB LED 低电平点亮。顶层已经处理该电气极性，PIC 固件仍按普通逻辑
+编写：向 GPx 写 `1` 表示对应虚拟引脚为高电平。
+
+## 目录结构
 
 ```text
 fpga/
-├── boards/tang_nano_1k/       # 开发板引脚与电气约束
-├── examples/button_toggle/    # BTN1 切换 LED1 的首个实板示例
-├── rtl/common/                # 与具体示例无关的可复用 RTL
-├── scripts/                   # Windows PowerShell 构建、仿真、烧录脚本
+├── boards/tang_nano_1k/       # 板级顶层和 CST 引脚约束
+├── rtl/core/                  # PIC10F200 CPU 与程序 ROM
+├── rtl/common/                # 时钟使能、输入同步等可复用模块
+├── tb/                        # RTL 测试平台
+├── tools/                     # Intel HEX 转 ROM 工具
+├── scripts/                   # Windows 构建、仿真、烧录脚本
+├── pic10f200.lushay.json      # Lushay Code 工程入口
 └── build/                     # 自动生成，不提交 Git
 ```
 
-## 示例行为
+## Windows 命令
 
-- BTN1（物理 13 脚）：按下一次，LED1 切换一次。
-- BTN2（物理 44 脚）：复位，LED1 熄灭。
-- LED1（物理 9 脚）：低电平点亮。
-- LED2、LED3：本示例保持熄灭。
-
-BTN1 经过两级同步和约 20 ms 消抖。一直按住不会连续切换，必须先释放再按下。
-
-约束中的 I/O 标准统一使用 Sipeed 官方 Tang Nano 1K 示例所采用的
-`LVCMOS33`。本机旧参考工程只使用了 LED，却把 LED/时钟写成 `LVCMOS18`；
-加入同一 Bank 的按键后会被 Apicula 正确拒绝，因此这里没有照搬该项设置。
-
-## Windows 命令行
-
-脚本默认查找 `E:\oss-cad-suite`。如果安装在其他位置，可以先设置：
+脚本默认使用 `E:\oss-cad-suite`。安装位置不同可以设置：
 
 ```powershell
 $env:OSS_CAD_SUITE = "D:\tools\oss-cad-suite"
 ```
 
-在仓库根目录执行逻辑仿真：
+运行核心测试：
 
 ```powershell
 .\fpga\scripts\simulate.ps1
 ```
 
-执行综合、布局布线并生成位流：
+只构建默认 blink 固件：
 
 ```powershell
 .\fpga\scripts\build.ps1
 ```
 
-连接开发板后，将位流下载到 SRAM：
+选择其他 HEX：
+
+```powershell
+.\fpga\scripts\build.ps1 -Firmware "path\to\firmware.hex"
+```
+
+构建并烧录到 Tang Nano 1K SRAM：
 
 ```powershell
 .\fpga\scripts\program.ps1
 ```
 
-输出位流位于 `fpga\build\button_toggle\button_toggle.fs`。
+选择固件后构建并烧录：
 
-也可以在 VS Code 中打开
-`examples/button_toggle/button_toggle.lushay.json`，交给 Lushay Code 插件构建。
+```powershell
+.\fpga\scripts\program.ps1 -Firmware "path\to\firmware.hex"
+```
 
-> 如果 openFPGALoader 找不到下载器，需要按照 Lushay Labs 教程，用 Zadig
-> 只把设备的 JTAG Interface 0 驱动改为 WinUSB；UART Interface 1 不要修改。
+`program.ps1` 默认总是重新构建，避免误烧旧位流。只有明确需要烧录上一次
+构建结果时才使用 `-SkipBuild`。
+
+对于仓库中的示例，构建脚本还会比较 `main.c` 与 `build/firmware.hex`
+的修改时间。如果 C 源码更新但 XC8 固件没有重编译，FPGA 构建会停止，
+避免把旧 HEX 再次封装进新位流。
+
+如果当前终端是 WSL/bash，不能直接运行 `.\xxx.ps1`。应打开 Windows
+PowerShell，或者从 WSL 显式调用 `powershell.exe`。
+
+> openFPGALoader 使用 JTAG Interface 0。若无法识别下载器，请按 Lushay
+> Labs 教程用 Zadig 将 Interface 0 设置为 WinUSB，不要修改 UART
+> Interface 1。

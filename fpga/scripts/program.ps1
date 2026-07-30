@@ -1,4 +1,6 @@
 param(
+    [string]$Firmware = "examples\blink\build\firmware.hex",
+    [switch]$SkipBuild,
     [string]$OssCadSuite = $env:OSS_CAD_SUITE
 )
 
@@ -15,17 +17,23 @@ $env:PATH = "$Bin;$Lib;$PyBin;$env:PATH"
 
 $FpgaRoot = Split-Path -Parent $PSScriptRoot
 $Loader = Join-Path $OssCadSuite "bin\openFPGALoader.exe"
-$Bitstream = Join-Path $FpgaRoot "build\button_toggle\button_toggle.fs"
+$Bitstream = Join-Path $FpgaRoot "build\pic10f200\pic10f200.fs"
 
 if (-not (Test-Path -LiteralPath $Loader)) {
     throw "openFPGALoader not found: $Loader"
 }
+if (-not $SkipBuild) {
+    & (Join-Path $PSScriptRoot "build.ps1") -Firmware $Firmware -OssCadSuite $OssCadSuite
+    if ($LASTEXITCODE -ne 0) {
+        throw "FPGA build failed (exit code $LASTEXITCODE)."
+    }
+}
 if (-not (Test-Path -LiteralPath $Bitstream)) {
-    throw "Bitstream not found: $Bitstream`nRun fpga\scripts\build.ps1 first."
+    throw "Bitstream not found: $Bitstream"
 }
 
 Write-Host "Programming Tang Nano 1K SRAM (volatile)..."
 & $Loader -b tangnano1k $Bitstream
 if ($LASTEXITCODE -ne 0) { throw "Programming failed (exit code $LASTEXITCODE)." }
 
-Write-Host "Done. BTN1 toggles LED1; BTN2 resets LED1 to off."
+Write-Host "Done. PIC GP0/GP1/GP2 drive RGB LEDs; BTN1 drives GP3; BTN2 resets."

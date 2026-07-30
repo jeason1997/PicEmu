@@ -23,14 +23,14 @@ foreach ($Tool in @($Iverilog, $Vvp)) {
 }
 
 $FpgaRoot = Split-Path -Parent $PSScriptRoot
-$BuildDir = Join-Path $FpgaRoot "build\button_toggle"
-$ButtonFile = Join-Path $FpgaRoot "rtl\common\button_conditioner.v"
-$Testbench = Join-Path $FpgaRoot "examples\button_toggle\tb\top_tb.v"
-$Simulation = Join-Path $BuildDir "button_toggle_tb.vvp"
+$BuildDir = Join-Path $FpgaRoot "build\pic10f200"
+$CoreFile = Join-Path $FpgaRoot "rtl\core\pic10f200_core.v"
+$Testbench = Join-Path $FpgaRoot "tb\pic10f200_core_tb.v"
+$Simulation = Join-Path $BuildDir "pic10f200_core_tb.vvp"
 
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
-& $Iverilog -g2012 -s top_tb -o $Simulation $ButtonFile $Testbench
+& $Iverilog -g2012 -s pic10f200_core_tb -o $Simulation $CoreFile $Testbench
 if ($LASTEXITCODE -ne 0) { throw "Icarus Verilog compile failed (exit code $LASTEXITCODE)." }
 
 & $Vvp $Simulation
