@@ -27,6 +27,14 @@ if printf '%s\n' "$BLINK" | grep -q 'GP1 ->'; then
     exit 1
 fi
 
+BREATHING=$(run_example breathing_led 300000)
+BREATHING_EDGES=$(printf '%s\n' "$BREATHING" |
+    grep -c 'GP0 ->' || true)
+if [ "$BREATHING_EDGES" -lt 20 ]; then
+    echo "breathing_led示例应在GP0产生连续的软件PWM" >&2
+    exit 1
+fi
+
 BUTTON=$(run_example button 70000 events.txt)
 printf '%s\n' "$BUTTON" | grep -q 'GP0 -> 0'
 printf '%s\n' "$BUTTON" | grep -q 'GP1 -> 1'
@@ -51,4 +59,4 @@ printf '%s\n' "$PLAYMUSIC" | grep -q 'PIC10F200'
 printf '%s\n' "$PLAYMUSIC" | grep -q 'GP2 -> 1'
 printf '%s\n' "$PLAYMUSIC" | grep -q 'GP2 -> 0'
 
-echo "示例集成测试通过：blink、button、buzzer、led_chaser、playmusic（PIC10F200）。"
+echo "示例集成测试通过：blink、breathing_led、button、buzzer、led_chaser、playmusic（PIC10F200）。"

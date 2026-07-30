@@ -19,10 +19,12 @@ static void led_render(SDL_Renderer *renderer, const SdlPart *part)
 {
     const SimLed *led = part->device->state;
     SDL_Color text = {210, 215, 220, 255};
+    unsigned intensity = 26u + (unsigned)led->brightness * 229u / 255u;
     SDL_SetRenderDrawColor(renderer,
-                          led->lit ? led->red : led->red / 5,
-                          led->lit ? led->green : led->green / 5,
-                          led->lit ? led->blue : led->blue / 5, 255);
+                          (uint8_t)((unsigned)led->red * intensity / 255u),
+                          (uint8_t)((unsigned)led->green * intensity / 255u),
+                          (uint8_t)((unsigned)led->blue * intensity / 255u),
+                          255);
     filled_circle(renderer, part->x, part->y, 24);
     sdl_draw_text(renderer, part->x - 18, part->y + 34, 1,
                   part->id, text);

@@ -46,13 +46,16 @@ def load_hex(path: Path) -> List[int]:
 
 
 def instruction_supported(instruction: int) -> bool:
-    """当前第一阶段核心能够执行的 Baseline 指令集合。"""
+    """当前实板基线核心能够执行的 Baseline 指令集合。"""
     return (
         instruction == 0x000
         or ((instruction & 0xFF8) == 0x000 and (instruction & 0x7) == 6)
         or (instruction & 0xFE0) == 0x020
         or (instruction & 0xFE0) == 0x060
+        or (instruction & 0xFC0) == 0x180
+        or (instruction & 0xFC0) == 0x200
         or (instruction & 0xFC0) == 0x2C0
+        or (instruction & 0xF00) == 0x600
         or (instruction & 0xE00) == 0xA00
         or (instruction & 0xF00) == 0xC00
     )

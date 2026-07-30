@@ -1,5 +1,6 @@
 param(
     [string]$Firmware = "examples\blink\build\firmware.hex",
+    [string]$Example,
     [switch]$SkipBuild,
     [switch]$Volatile,
     [string]$OssCadSuite = $env:OSS_CAD_SUITE
@@ -17,12 +18,58 @@ $PyBin = Join-Path $OssCadSuite "py3bin"
 $env:PATH = "$Bin;$Lib;$PyBin;$env:PATH"
 
 $FpgaRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = Split-Path -Parent $FpgaRoot
 $Loader = Join-Path $OssCadSuite "bin\openFPGALoader.exe"
 $Bitstream = Join-Path $FpgaRoot "build\pic10f200\pic10f200.fs"
 
 if (-not (Test-Path -LiteralPath $Loader)) {
     throw "openFPGALoader not found: $Loader"
 }
+
+# With -Example, one command compiles main.c in WSL, builds the FPGA
+# bitstream, and programs the board. Keep -Firmware for custom HEX files.
+if (-not [string]::IsNullOrWhiteSpace($Example)) {
+    if ($PSBoundParameters.ContainsKey("Firmware")) {
+        throw "-Example and -Firmware cannot be used together."
+    }
+    if ($SkipBuild) {
+        throw "-SkipBuild cannot be used with -Example because the new firmware must be embedded into a new bitstream."
+    }
+    if ($Example -notmatch '^[A-Za-z0-9_-]+$') {
+        throw "Invalid example name: $Example"
+    }
+
+    $ExampleDir = Join-Path $RepoRoot "examples\$Example"
+    $ExampleSource = Join-Path $ExampleDir "main.c"
+    if (-not (Test-Path -LiteralPath $ExampleSource)) {
+        $AvailableExamples = (
+            Get-ChildItem -LiteralPath (Join-Path $RepoRoot "examples") -Directory |
+                Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "main.c") } |
+                Select-Object -ExpandProperty Name
+        ) -join ", "
+        throw "Example not found: $Example`nAvailable examples: $AvailableExamples"
+    }
+
+    $Wsl = Get-Command "wsl.exe" -ErrorAction SilentlyContinue
+    if ($null -eq $Wsl) {
+        throw "wsl.exe was not found. Install/enable WSL or compile the HEX manually and use -Firmware."
+    }
+
+    Write-Host "Compiling PIC example '$Example' in WSL with XC8..."
+    # wsl.exe --cd accepts a Windows path directly. This avoids the quoting
+    # differences of wslpath across PowerShell/WSL versions.
+    $WslBuildCommand = "make -C 'examples/$Example' firmware"
+    & $Wsl.Source --cd $RepoRoot bash -ic $WslBuildCommand
+    if ($LASTEXITCODE -ne 0) {
+        throw "PIC firmware build failed in WSL (exit code $LASTEXITCODE)."
+    }
+
+    $Firmware = Join-Path $ExampleDir "build\firmware.hex"
+    if (-not (Test-Path -LiteralPath $Firmware)) {
+        throw "XC8 completed but firmware was not generated: $Firmware"
+    }
+}
+
 if (-not $SkipBuild) {
     & (Join-Path $PSScriptRoot "build.ps1") `
         -Firmware $Firmware `
@@ -42,6 +89,18 @@ if ($Volatile) {
 else {
     Write-Host "Programming Tang Nano 1K internal configuration Flash..."
     & $Loader -b tangnano1k -f $Bitstream
+    if ($LASTEXITCODE -ne 0) {
+        throw "Persistent Flash programming failed (exit code $LASTEXITCODE)."
+    }
+
+    <#
+    写配置 Flash 时下载器会擦除当前 SRAM 配置，但并非所有版本的
+    openFPGALoader 都会在写完后自动触发重新配置。再加载一次 SRAM，
+    让刚烧录的程序立即运行；Flash 中的持久化副本保持不变，下次上电
+    仍会自动加载。
+    #>
+    Write-Host "Loading the same bitstream into FPGA SRAM for immediate start..."
+    & $Loader -b tangnano1k $Bitstream
 }
 if ($LASTEXITCODE -ne 0) {
     throw "Programming failed (exit code $LASTEXITCODE)."
@@ -52,6 +111,6 @@ if ($Volatile) {
     Write-Host "The image is volatile and will be lost after power-off."
 }
 else {
-    Write-Host "The image is persistent and will start automatically after power-on."
+    Write-Host "The image is running now and is also persistent across power cycles."
 }
 Write-Host "PIC GP0/GP1/GP2 drive RGB LEDs; BTN1 drives GP3; BTN2 resets."

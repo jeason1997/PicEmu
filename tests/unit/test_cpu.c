@@ -283,6 +283,27 @@ static void test_passive_buzzer_frequency(void)
     CHECK(buzzer.half_period_cycles == 500);
 }
 
+static void test_led_pwm_brightness(void)
+{
+    SimLed led;
+    unsigned i;
+
+    sim_led_init(&led, "PWM LED", 255, 0, 0, true);
+
+    /* 1000周期采样窗内，高低电平各占一半，亮度应接近50%。 */
+    for (i = 0; i < 10; ++i) {
+        led.base.ops->pin_changed(&led.base, 0, SIM_LEVEL_HIGH);
+        led.base.ops->tick(&led.base, 50, 60000u);
+        led.base.ops->pin_changed(&led.base, 0, SIM_LEVEL_LOW);
+        led.base.ops->tick(&led.base, 50, 60000u);
+    }
+    CHECK(led.brightness >= 126 && led.brightness <= 128);
+
+    led.base.ops->reset(&led.base);
+    CHECK(!led.lit);
+    CHECK(led.brightness == 0);
+}
+
 static void test_buzzer_uses_configured_clock(void)
 {
     SimBuzzer buzzer;
@@ -370,6 +391,7 @@ int main(void)
     test_disassembler();
     test_extensible_board_devices();
     test_passive_buzzer_frequency();
+    test_led_pwm_brightness();
     test_buzzer_uses_configured_clock();
     test_network_merge();
     test_generic_circuit_properties();

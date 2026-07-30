@@ -75,7 +75,31 @@ module pic10f200_core_tb;
             $display("FAIL: GP0 changes=%0d", changes);
             $finish;
         end
-        $display("PASS: PIC10F200 fetch/decode/TRIS/GPIO/GOTO");
+
+        /* 第二段验证 button 固件所需的 XORWF、MOVF 和 BTFSC。 */
+        reset_n = 0;
+        for (i = 0; i < 256; i = i + 1)
+            rom[i] = 12'h000;
+        rom[0]  = 12'hc3c; /* MOVLW 0x3c：GP0、GP1 输出 */
+        rom[1]  = 12'h006; /* TRIS GPIO */
+        rom[2]  = 12'hc01; /* MOVLW 1 */
+        rom[3]  = 12'h030; /* MOVWF 0x10 */
+        rom[4]  = 12'hc03; /* MOVLW 3 */
+        rom[5]  = 12'h1b0; /* XORWF 0x10,F：结果为2 */
+        rom[6]  = 12'h210; /* MOVF 0x10,W：W=2 */
+        rom[7]  = 12'h630; /* BTFSC 0x10,1：该位为1，不跳过 */
+        rom[8]  = 12'hc01; /* MOVLW 1 */
+        rom[9]  = 12'h026; /* MOVWF GPIO */
+        rom[10] = 12'ha0a; /* GOTO 10 */
+        #20 reset_n = 1;
+        #300;
+        if (gpio_output[0] !== 1'b1) begin
+            $display("FAIL: button instruction subset GP0=%b PC=%02x W=%02x STATUS=%02x",
+                     gpio_output[0], debug_pc, debug_w, debug_status);
+            $finish;
+        end
+
+        $display("PASS: PIC10F200 core, GPIO and button instruction subset");
         $finish;
     end
 endmodule

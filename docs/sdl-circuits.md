@@ -75,6 +75,7 @@ make firmware
 完整示例见：
 
 - [`examples/blink/`](../examples/blink/)
+- [`examples/breathing_led/`](../examples/breathing_led/)：GP0软件PWM红色呼吸灯
 - [`examples/button/`](../examples/button/)
 - [`examples/buzzer/`](../examples/buzzer/)
 - [`examples/playmusic/`](../examples/playmusic/)：PIC10F200 软件方波播放简单旋律

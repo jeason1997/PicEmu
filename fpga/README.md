@@ -45,14 +45,15 @@ BSRAM: 1 / 4 (25%)
 
 ## 当前实现范围
 
-当前阶段可运行 `blink` 和 `led_chaser` 等简单 XC8 固件：
+当前阶段已在 Tang Nano 1K 实板验证 `blink`、`led_chaser` 和 `button`
+等 XC8 固件：
 
 - 12 位指令取指和译码；
 - 8 位 W、PC 和 STATUS；
 - GPIO 输出锁存器和 TRIS 方向控制；
 - GP3 固定输入；
 - 三个 GPR（`0x10`～`0x12`）；
-- NOP、TRIS、MOVWF、CLRF、DECFSZ、GOTO、MOVLW；
+- NOP、TRIS、MOVWF、CLRF、XORWF、MOVF、DECFSZ、BTFSC、GOTO、MOVLW；
 - 跳转和成功跳过指令的第二个指令周期；
 - 27 MHz FPGA 时钟产生 1 MHz PIC 指令周期；
 - 64 个 12 位程序字的 BSRAM 程序窗口。
@@ -60,6 +61,10 @@ BSRAM: 1 / 4 (25%)
 尚未实现全部 16 字节 RAM、完整指令集、两级栈、Timer0、WDT、SLEEP 和
 外部 T0CKI。HEX 转换器会拒绝超过 64 字或包含未实现指令的固件，避免静默
 执行错误。
+
+`breathing_led` 当前用于 SDL 模拟器演示软件 PWM。它需要的固件容量和
+指令尚超出这一版 FPGA 核心的范围，因此暂未列为 FPGA 可运行示例；RTL
+中没有为呼吸灯加入专用状态机或其他特殊处理。
 
 ## 引脚映射
 
@@ -142,6 +147,19 @@ $env:OSS_CAD_SUITE = "D:\tools\oss-cad-suite"
 默认写入 GW1NZ-1 内部配置 Flash，断电后仍会保留并在下次上电自动运行：
 
 ```powershell
+.\fpga\scripts\program.ps1 -Example blink
+```
+
+`-Example` 会自动调用 WSL 中的 XC8 编译对应的 `main.c`，然后生成位流并
+完成烧录。更换示例只需修改名称：
+
+```powershell
+.\fpga\scripts\program.ps1 -Example led_chaser
+```
+
+也可以手动指定已经编译好的 HEX：
+
+```powershell
 .\fpga\scripts\program.ps1 `
   -Firmware "examples\led_chaser\build\firmware.hex"
 ```
@@ -161,8 +179,7 @@ $env:OSS_CAD_SUITE = "D:\tools\oss-cad-suite"
 ```
 
 更换 PIC 固件后必须重新生成位流，因为 PIC ROM 初值就是位流的一部分。
-对于仓库示例，如果 `main.c` 比 `firmware.hex` 更新，构建会停止并要求先用
-XC8 重编译，避免封装旧固件。
+`-SkipBuild` 只会重复烧录现有位流，不能与 `-Example` 同时使用。
 
 如果当前终端是 WSL/bash，不能直接运行 `.\xxx.ps1`。请打开 Windows
 PowerShell，或从 WSL 显式调用 `powershell.exe`。
