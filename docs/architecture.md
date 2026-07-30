@@ -24,10 +24,19 @@ PicEmu/
 │   ├── circuit/           配置到运行时电路的装配
 │   ├── parts/             各器件独立可视模块
 │   └── common/            位图文字等公共绘图代码
+├── frontends/web/
+│   ├── public/            浏览器界面、画布和调试面板
+│   ├── backend/           面向Web的C调试协议进程
+│   ├── scripts/           Linux主启动脚本和PowerShell包装
+│   └── server.mjs         静态文件、保存接口和多MCU进程管理
 ├── examples/
-│   ├── blink/             每个示例自带源码、diagram.json和构建目录
-│   ├── button/
-│   └── buzzer/
+│   └── */                 每个示例自带源码、diagram.json和构建目录
+├── ports/stm32f103/       裸机端口、链接脚本和烧录包装
+├── fpga/
+│   ├── rtl/               独立Verilog PIC10F200实现
+│   ├── boards/            Tang Nano 1K顶层与引脚约束
+│   ├── tb/                RTL测试平台
+│   └── scripts/           OSS-CAD-Suite构建、仿真和烧录
 ├── docs/
 │   └── ports/             非桌面平台的移植说明
 ├── tests/                 单元测试与示例集成测试
@@ -42,12 +51,19 @@ PIC核心 -> SimMcu适配器 -> 仿真网络 <- 虚拟器件
 HEX映像                 SDL电路装配 <- SDL应用
    ^
 HEX加载器 / 嵌入式C数组
+
+浏览器 <-> Node本地服务 <-> 每颗MCU一个Web C后端进程
+
+XC8 HEX -> HEX转C -> STM32裸机程序
+XC8 HEX -> HEX转MEM -> FPGA BSRAM初值和位流
 ```
 
 - CPU核心不知道SDL、窗口、LED或JSON。
 - 虚拟器件只通过引脚驱动和观察网络，不直接访问CPU内部状态。
 - SDL应用不写死器件和连线，电路由JSON决定。
+- Web负责编辑和调试交互，PIC指令仍由C后端执行，不在JavaScript中复制。
 - STM32桥接不依赖SDL，可把虚拟PIC引脚映射到真实GPIO。
+- FPGA是独立RTL实现，不链接C模拟器；它通过相同XC8 HEX验证兼容行为。
 
 `SimBoard`只依赖`SimMcu`接口，不再保存`Pic10Cpu *`。PIC10通过
 `SimPic10Mcu`适配器提供复位、执行、引脚驱动和停止状态；后续PIC12、
@@ -55,15 +71,29 @@ PIC16或其他架构可提供自己的适配器而无需修改网络层。
 
 电路容量统一定义在`include/picemu/sim/limits.h`。网络支持多个端点，
 SDL装配器会根据重复端点自动合并连接，不再限制为“一个主控引脚连接一个
-外设”。
+外设”。电路允许多颗MCU，每颗MCU拥有独立CPU和固件映像。
+
+## 固件在各平台的流向
+
+| 平台 | 构建时 | 运行时 |
+|---|---|---|
+| 命令行/SDL | 从文件系统读取Intel HEX | `HexImage`保存在进程内存 |
+| Web | Node按MCU启动C后端并传入HEX路径 | 每个后端保存独立`Pic10Cpu` |
+| STM32F103 | `hex2c`生成C常量并链接进固件 | 从STM32 Flash中的常量初始化CPU |
+| Tang Nano 1K | HEX转为12位MEM并写入位流 | FPGA配置时初始化片上BSRAM |
+
+这四条路径共用XC8生成的固件格式，但FPGA的CPU执行器是Verilog版本，其
+实现范围应单独参考FPGA文档。
 
 ## 增加芯片型号
 
 1. 在 `core` 增加型号描述和差异外设；
 2. 尽量复用 Baseline CPU 指令执行器；
-3. 在 SDL `parts` 增加对应封装外观；
-4. 在电路装配器注册新的 `type`；
-5. 增加该型号独立的示例固件与单元测试。
+3. 在 SDL `parts` 增加对应封装外观并注册新的 `type`；
+4. 在 Web 增加器件定义、外观和属性面板；
+5. 判断STM32通用适配器是否需要型号参数；
+6. FPGA若要支持该型号，需要独立扩展RTL，不能假设C代码会自动生效；
+7. 增加该型号的真实XC8固件、单元测试和前端测试。
 
 目前设备查找器接受PIC10F200和PIC10F202。PIC10F204/206仍未支持。
 

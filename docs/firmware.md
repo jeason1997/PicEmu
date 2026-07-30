@@ -19,7 +19,7 @@ make firmware
 如果DFP不在自动搜索位置：
 
 ```sh
-make -C test firmware \
+make -C examples/blink firmware \
   DFP=/path/to/PIC10-12Fxxx_DFP/version/xc8
 ```
 
@@ -36,6 +36,8 @@ examples/buzzer/build/firmware.hex
 ```sh
 make -C examples/blink
 ```
+
+所有示例及用途见[示例说明](examples.md)。
 
 ## 嵌入固件
 

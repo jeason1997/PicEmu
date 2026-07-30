@@ -78,8 +78,8 @@ make firmware
 
 | type | 引脚 | attrs |
 |---|---|---|
-| `pic10f200` | GP0、GP1、GP2、GP3；VDD/VSS仅显示 | 无 |
-| `pic10f202` | 与PIC10F200引脚兼容 | 无 |
+| `pic10f200` | GP0、GP1、GP2、GP3；VDD/VSS仅显示 | firmware |
+| `pic10f202` | 与PIC10F200引脚兼容 | firmware |
 | `led` | A或IN | color: red/green/blue/yellow |
 | `pushbutton` | 1或OUT | activeLow: true/false |
 | `buzzer` | 1或IN | 无 |
@@ -111,3 +111,6 @@ SDL主循环不需要知道新器件的坐标、引脚或内部行为。
 `attrs`由通用键值表保存，解析器不认识也不需要认识`color`、
 `activeLow`等器件专用属性。每个器件从自己的初始化函数读取所需字段，
 因此增加新属性不需要修改公共`CircuitPartConfig`。
+
+Web编辑器也读写这份格式，字段兼容规则见
+[Web与SDL共用电路文件](web-simulator.md#与-sdl-共用电路文件)。

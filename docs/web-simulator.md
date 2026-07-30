@@ -6,8 +6,9 @@ Web 前端提供一个类似 SimulIDE 的本地电路实验台。它没有重新
 
 ## 启动
 
-需要 Windows 上安装 Node.js，并且 WSL 中能够使用 GCC 和 XC8。在 PowerShell
-的项目根目录执行：
+Linux/WSL 需要 Node.js、GCC、Make 和 XC8。Windows PowerShell 启动脚本
+会调用 WSL 中的统一构建流程，因此 Windows 侧还需要可用的 `wsl.exe`。
+在项目根目录执行：
 
 ```powershell
 .\frontends\web\scripts\start.ps1
@@ -86,7 +87,8 @@ Web 直接读取 `examples/*/diagram.json`，主要字段保持一致：
 - PIC 的 `left/top` 表示芯片矩形左上角；
 - LED、按键和蜂鸣器的 `left/top` 表示器件中心；
 - 两端统一使用 MCU 300×240、LED 直径48、按钮110×60、蜂鸣器直径60；
-- Web 在 100% 缩放下与 SDL 使用相同像素坐标和引脚锚点。
+- Web 在100%缩放下与SDL使用相同器件尺寸和世界坐标；Web连接圆点贴近
+  芯片边缘，并会让外设端口自动朝向所连接的器件。
 
 ## 架构
 
@@ -102,6 +104,8 @@ PIC10 CPU、HEX 加载器、器件描述
 
 Node 服务只监听 `127.0.0.1`。用户上传的 HEX 按 MCU ID 暂存在
 `build/web/uploads/<mcu-id>.hex`，执行 `make clean` 会将其删除。
+“保存电路”只能写入当前从项目示例列表打开的 JSON，不会把浏览器任意路径
+直接交给文件系统。
 
 ## 当前范围
 

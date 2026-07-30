@@ -4,6 +4,10 @@
 PIC10F200。XC8 生成的 Intel HEX 会在构建期间转换为 12 位程序镜像，
 与 PIC CPU 核心一起封装进 FPGA 位流。
 
+这里是独立RTL实现，不会综合或转换项目的C模拟器源码。两者通过运行相同
+XC8 HEX和示例来验证行为，而不是共享执行代码。软件模拟器总览见
+[项目主页](../README.md)。
+
 当前实现不是把示例行为写死在 RTL 中。更换 `-Firmware` 参数并重新构建
 位流，就能运行另一个符合当前指令集和容量限制的 PIC 固件。
 
@@ -191,3 +195,5 @@ PowerShell，或从 WSL 显式调用 `powershell.exe`。
 
 > openFPGALoader 使用 JTAG Interface 0。若无法识别下载器，请按 Lushay
 > Labs 教程使用 Zadig 将 Interface 0 设置为 WinUSB，不要修改串口接口。
+
+示例用途和各平台兼容性汇总见[示例说明](../docs/examples.md)。
