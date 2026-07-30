@@ -35,9 +35,20 @@ BUZZER=$(run_example buzzer 120000 events.txt)
 printf '%s\n' "$BUZZER" | grep -q 'GP2 -> 1'
 printf '%s\n' "$BUZZER" | grep -q 'GP2 -> 0'
 
+LED_CHASER=$(run_example led_chaser 400000)
+LED_CHASER_RISES=$(printf '%s\n' "$LED_CHASER" |
+    sed -n 's/.*\(GP[012] -> 1\).*/\1/p' |
+    head -n 3)
+if [ "$LED_CHASER_RISES" != "GP0 -> 1
+GP1 -> 1
+GP2 -> 1" ]; then
+    echo "led_chaser示例的前三次点亮顺序应为GP0、GP1、GP2" >&2
+    exit 1
+fi
+
 PLAYMUSIC=$(run_example playmusic 10000)
 printf '%s\n' "$PLAYMUSIC" | grep -q 'PIC10F200'
 printf '%s\n' "$PLAYMUSIC" | grep -q 'GP2 -> 1'
 printf '%s\n' "$PLAYMUSIC" | grep -q 'GP2 -> 0'
 
-echo "示例集成测试通过：blink、button、buzzer、playmusic（PIC10F200）。"
+echo "示例集成测试通过：blink、button、buzzer、led_chaser、playmusic（PIC10F200）。"

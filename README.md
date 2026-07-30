@@ -24,6 +24,7 @@ make run-sdl
 # 选择其他示例
 make run-sdl EXAMPLE=blink
 make run-sdl EXAMPLE=buzzer
+make run-sdl EXAMPLE=led_chaser
 make run-sdl EXAMPLE=playmusic
 ```
 

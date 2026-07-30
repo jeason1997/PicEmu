@@ -42,7 +42,7 @@ fpga/
 ├── boards/tang_nano_1k/       # 板级顶层和 CST 引脚约束
 ├── rtl/core/                  # PIC10F200 CPU 与程序 ROM
 ├── rtl/common/                # 时钟使能、输入同步等可复用模块
-├── tb/                        # RTL 测试平台
+├── tb/                        # 与具体固件无关的 CPU 核心 RTL 测试
 ├── tools/                     # Intel HEX 转 ROM 工具
 ├── scripts/                   # Windows 构建、仿真、烧录脚本
 ├── pic10f200.lushay.json      # Lushay Code 工程入口
@@ -85,6 +85,13 @@ $env:OSS_CAD_SUITE = "D:\tools\oss-cad-suite"
 
 ```powershell
 .\fpga\scripts\program.ps1 -Firmware "path\to\firmware.hex"
+```
+
+烧录仓库中的三路流水灯示例：
+
+```powershell
+.\fpga\scripts\program.ps1 `
+  -Firmware "examples\led_chaser\build\firmware.hex"
 ```
 
 `program.ps1` 默认总是重新构建，避免误烧旧位流。只有明确需要烧录上一次

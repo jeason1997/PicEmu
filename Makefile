@@ -168,6 +168,8 @@ stm32-host-test:
 
 clean:
 	rm -rf $(BUILD_DIR)
+	rm -rf fpga/build
+	find fpga -type f -name '___module_export.json' -delete
 	$(MAKE) -C examples clean
 	$(MAKE) -C ports/stm32f103 clean
 
