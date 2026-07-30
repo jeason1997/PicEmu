@@ -24,6 +24,7 @@ const W25_CAPACITIES = [
   [8388608, "W25Q64 · 8 MiB"],
   [16777216, "W25Q128 · 16 MiB"]
 ];
+const MCU_TYPES = new Set(["pic10f200", "pic10f202"]);
 
 const model = {
   diagram: { version: 1, clockHz: 4000000, firmware: "", parts: [], connections: [] },
@@ -74,6 +75,12 @@ const pinDefs = {
   pushbutton: [{ name:"1", gpio:null }],
   buzzer: [{ name:"1", gpio:null }]
 };
+pinDefs.pic10f202 = pinDefs.pic10f200;
+
+function isMcuType(type) { return MCU_TYPES.has(type); }
+function mcuDevice(part) {
+  return part.type === "pic10f202" ? "PIC10F202" : "PIC10F200";
+}
 
 async function api(url, options = {}) {
   const response = await fetch(url, options);
@@ -100,7 +107,7 @@ function hex(value, digits = 2) {
 }
 
 function partClass(type) {
-  return type === "pic10f200" ? "mcu"
+  return isMcuType(type) ? "mcu"
     : type === "w25q" ? "flash-chip"
     : type === "led" ? "led-part"
     : type === "pushbutton" ? "button-part" : "buzzer-part";
@@ -111,7 +118,7 @@ function snap(value) { return Math.round(value / SNAP_SIZE) * SNAP_SIZE; }
 function stageX(worldX) { return worldX + ORIGIN_X; }
 function stageY(worldY) { return worldY + ORIGIN_Y; }
 function partSize(type) {
-  if (type === "pic10f200") return { width: 300, height: 240 };
+  if (isMcuType(type)) return { width: 300, height: 240 };
   if (type === "w25q") return { width: 180, height: 150 };
   if (type === "led") return { width: 48, height: 48 };
   if (type === "pushbutton") return { width: 110, height: 60 };
@@ -119,7 +126,7 @@ function partSize(type) {
 }
 function partTopLeft(part) {
   const size = partSize(part.type);
-  if (part.type === "pic10f200" || part.type === "w25q") {
+  if (isMcuType(part.type) || part.type === "w25q") {
     return { left: part.left, top: part.top };
   }
   return {
@@ -128,7 +135,7 @@ function partTopLeft(part) {
   };
 }
 function mcuParts() {
-  return model.diagram.parts.filter(part => part.type === "pic10f200");
+  return model.diagram.parts.filter(part => isMcuType(part.type));
 }
 function activeBreakpoints() {
   const id = model.activeMcuId || "mcu";
@@ -233,10 +240,10 @@ function renderPart(part) {
     el.classList.add(part.attrs?.color || "red");
   }
 
-  if (part.type === "pic10f200") {
+  if (isMcuType(part.type)) {
     el.innerHTML = `<div class="part-body">
-      <i class="pin-one"></i><div class="mcu-title">PIC10F200</div></div>`;
-    for (const pin of pinDefs.pic10f200) {
+      <i class="pin-one"></i><div class="mcu-title">${mcuDevice(part)}</div></div>`;
+    for (const pin of pinDefs[part.type]) {
       const p = document.createElement("div");
       p.className = `pin ${pin.side}`;
       p.style.top = `${pin.top}px`;
@@ -302,8 +309,8 @@ function pinPoint(endpoint) {
   const [id, pinName] = endpoint.split(":");
   const part = model.diagram.parts.find(item => item.id === id);
   if (!part) return null;
-  if (part.type === "pic10f200") {
-    const pin = pinDefs.pic10f200.find(item => item.name === pinName);
+  if (isMcuType(part.type)) {
+    const pin = pinDefs[part.type].find(item => item.name === pinName);
     if (!pin) return null;
     return {
       x: stageX(part.left) + (pin.side === "left" ? -6 : 306),
@@ -333,12 +340,28 @@ function renderWires() {
     const a = pinPoint(connection[0]);
     const b = pinPoint(connection[1]);
     if (!a || !b) return;
-    const middle = snap((a.x + b.x) / 2);
+    const configuredPoints = Array.isArray(connection[3])
+      ? connection[3].map(point => Array.isArray(point)
+        ? { x: Number(point[0]), y: Number(point[1]) }
+        : { x: Number(point.x), y: Number(point.y) })
+        .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+      : [];
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("class", "wire");
     if (index === model.selectedConnection) path.classList.add("selected");
     path.setAttribute("stroke", connection[2] || "#60a5fa");
-    path.setAttribute("d", `M${a.x},${a.y} H${middle} V${b.y} H${b.x}`);
+    if (configuredPoints.length > 0) {
+      path.setAttribute("d", [
+        `M${a.x},${a.y}`,
+        ...configuredPoints.map(point =>
+          `H${stageX(point.x)} V${stageY(point.y)}`),
+        `H${b.x} V${b.y}`
+      ].join(" "));
+    } else {
+      const middle = snap((a.x + b.x) / 2);
+      path.setAttribute("d",
+        `M${a.x},${a.y} H${middle} V${b.y} H${b.x}`);
+    }
     path.addEventListener("pointerdown", event => {
       event.stopPropagation();
       model.selected = null;
@@ -402,7 +425,7 @@ function beginPartDrag(event, part, el) {
   model.selected = part.id;
   updateSelection();
   if (model.selectedIds.size === 1) showPartInspector(part);
-  if (part.type === "pic10f200") selectActiveMcu(part.id);
+  if (isMcuType(part.type)) selectActiveMcu(part.id);
   model.selectedConnection = null;
   const startX = event.clientX, startY = event.clientY;
   const starts = new Map(model.diagram.parts
@@ -459,7 +482,7 @@ function beginPartDrag(event, part, el) {
 
 function renderPortDirections() {
   for (const part of model.diagram.parts) {
-    if (part.type === "pic10f200" || part.type === "w25q") continue;
+    if (isMcuType(part.type) || part.type === "w25q") continue;
     const pin = document.querySelector(
       `.part[data-id="${CSS.escape(part.id)}"] .device-pin`);
     if (!pin) continue;
@@ -475,7 +498,7 @@ function updateSelection() {
 }
 
 function uniqueId(type) {
-  const base = type === "pic10f200" ? "mcu"
+  const base = isMcuType(type) ? "mcu"
     : type === "w25q" ? "flash"
     : type === "pushbutton" ? "button" : type;
   let index = 1, value = base;
@@ -506,7 +529,7 @@ stageViewport.addEventListener("drop", event => {
   if (type === "pushbutton") part.attrs = { activeLow: true };
   if (type === "w25q") part.attrs = { capacity: 2097152, data: "" };
   model.diagram.parts.push(part);
-  if (type === "pic10f200") selectActiveMcu(part.id);
+  if (isMcuType(type)) selectActiveMcu(part.id);
   model.selectedIds.clear();
   model.selectedIds.add(part.id);
   model.selected = part.id; renderAll(); showPartInspector(part);
@@ -678,7 +701,7 @@ $("#zoomFitBtn").addEventListener("click", fitDiagram);
 function inputState(mcuId = model.activeMcuId) {
   let mask = 0, values = 0;
   const mcu = model.diagram.parts.find(
-    p => p.type === "pic10f200" && p.id === mcuId);
+    p => isMcuType(p.type) && p.id === mcuId);
   if (!mcu) return { inputMask: 0, inputValues: 0 };
   for (const part of model.diagram.parts.filter(p => p.type === "pushbutton")) {
     const connection = model.diagram.connections.find(c =>
@@ -778,6 +801,12 @@ async function refreshW25Memory(part) {
     dump.textContent = formatW25Dump(offset, result.data);
     const offsetInput = $("#w25Offset");
     if (offsetInput) offsetInput.value = String(offset);
+    const pageText = $("#w25Page");
+    if (pageText) {
+      const totalPages = Math.ceil(capacity / 256);
+      pageText.textContent =
+        `第 ${Math.floor(offset / 256) + 1} / ${totalPages} 页`;
+    }
   } catch (error) {
     dump.textContent = `读取失败：${error.message}`;
   } finally {
@@ -984,7 +1013,7 @@ async function loadDiagram(diagram, name = "电路", diagramPath = null) {
     return post("/api/load", {
       mcuId: mcu.id,
       firmware,
-      device: "PIC10F200"
+      device: mcuDevice(mcu)
     });
   });
   if (requestedLoads === 0) {
@@ -1084,7 +1113,7 @@ async function frame(now) {
   }
   const selectedPart = model.diagram.parts.find(
     part => part.id === model.selected && part.type === "w25q");
-  if (selectedPart && now - model.w25LastRefresh >= 500) {
+  if (selectedPart && now - model.w25LastRefresh >= 200) {
     model.w25LastRefresh = now;
     refreshW25Memory(selectedPart);
   }
@@ -1102,7 +1131,7 @@ function showPartInspector(part) {
     <div class="property-row"><label>类型</label><input value="${part.type}" disabled></div>
     ${part.type === "led" ? `<div class="property-row"><label>颜色</label>
       <select id="propColor"><option>red</option><option>green</option><option>blue</option><option>yellow</option></select></div>` : ""}
-    ${part.type === "pic10f200" ? `<div class="property-row"><label>HEX 固件</label>
+    ${isMcuType(part.type) ? `<div class="property-row"><label>HEX 固件</label>
       <input id="propFirmware" value="${firmware}" disabled>
       <button id="propHexBtn" type="button">为 ${part.id} 设置 HEX</button>
     </div>` : ""}
@@ -1111,17 +1140,23 @@ function showPartInspector(part) {
         <select id="propW25Capacity">${W25_CAPACITIES.map(([value, label]) =>
           `<option value="${value}">${label}</option>`).join("")}</select>
       </div>
-      <div class="property-row"><label>地址0初始数据（HEX）</label>
-        <textarea id="propW25Data" rows="3" placeholder="50 49 43 45">${
+      <div class="property-row">
+        <label>写入地址0的数据（HEX）</label>
+        <textarea id="propW25InitialData" name="w25-initial-${part.id}"
+          rows="3" autocomplete="new-password"
+          spellcheck="false" placeholder="例如：48 65 6C 6C 6F">${
           attrs.data || ""}</textarea>
+        <button id="w25Write" type="button">写入</button>
       </div>
       <div class="property-row"><label>数据查看器</label>
-        <div class="w25-toolbar">
+        <div class="w25-page-row">
           <button id="w25Prev" type="button">上一页</button>
+          <span id="w25Page">第 1 页</span>
+          <button id="w25Next" type="button">下一页</button>
+        </div>
+        <div class="w25-jump-row">
           <input id="w25Offset" type="number" min="0" step="256" value="0">
           <button id="w25Go" type="button">跳转</button>
-          <button id="w25Next" type="button">下一页</button>
-          <button id="w25Refresh" type="button">刷新</button>
         </div>
         <pre id="w25Dump" class="w25-dump">等待读取……</pre>
       </div>` : ""}
@@ -1141,7 +1176,7 @@ function showPartInspector(part) {
       c[0] = c[0].replace(`${old}:`, `${value}:`);
       c[1] = c[1].replace(`${old}:`, `${value}:`);
     });
-    if (part.type === "pic10f200") {
+    if (isMcuType(part.type)) {
       const oldState = model.states.get(old);
       model.states.delete(old);
       if (oldState) model.states.set(value, { ...oldState, mcuId: value });
@@ -1154,7 +1189,7 @@ function showPartInspector(part) {
           setState(await post("/api/load", {
             mcuId: value,
             firmware: attrs.firmware,
-            device: "PIC10F200"
+            device: mcuDevice(part)
           }));
         } catch (error) {
           message(error.message, true);
@@ -1186,6 +1221,7 @@ function showPartInspector(part) {
   }
   const capacitySelect = $("#propW25Capacity");
   if (capacitySelect) {
+    $("#propW25InitialData").value = attrs.data || "";
     capacitySelect.value = String(attrs.capacity || 2097152);
     capacitySelect.addEventListener("change", async event => {
       attrs.capacity = Number(event.target.value);
@@ -1200,16 +1236,9 @@ function showPartInspector(part) {
         message(error.message, true);
       }
     });
-    $("#propW25Data").addEventListener("change", async event => {
+    $("#propW25InitialData").addEventListener("change", event => {
       attrs.data = event.target.value.trim();
-      try {
-        await configureW25(part, true);
-        recordHistory();
-        await refreshW25Memory(part);
-        message(`${part.id}初始数据已重新装载`);
-      } catch (error) {
-        message(error.message, true);
-      }
+      recordHistory();
     });
     const movePage = async delta => {
       const capacity = Number(attrs.capacity || 2097152);
@@ -1224,8 +1253,25 @@ function showPartInspector(part) {
       model.w25Offsets.set(part.id, Number($("#w25Offset").value || 0));
       await refreshW25Memory(part);
     });
-    $("#w25Refresh").addEventListener(
-      "click", () => refreshW25Memory(part));
+    $("#w25Write").addEventListener("click", async () => {
+      attrs.data = $("#propW25InitialData").value.trim();
+      const wiring = w25Wiring(part);
+      if (!wiring) return message(`${part.id}的SPI连线不完整`, true);
+      try {
+        await post("/api/command", {
+          command: "w25_write",
+          mcuId: wiring.mcuId,
+          offset: 0,
+          data: attrs.data
+        });
+        model.w25Offsets.set(part.id, 0);
+        recordHistory();
+        await refreshW25Memory(part);
+        message(`${part.id}已从地址0写入输入数据`);
+      } catch (error) {
+        message(error.message, true);
+      }
+    });
     refreshW25Memory(part);
   }
 }
@@ -1257,7 +1303,7 @@ $("#deleteBtn").addEventListener("click", () => {
     !connection.slice(0, 2).some(endpoint => [...deletedIds].some(
       id => endpoint.startsWith(id + ":"))));
   for (const part of deleted) {
-    if (part.type === "pic10f200") {
+    if (isMcuType(part.type)) {
       model.states.delete(part.id);
       model.breakpoints.delete(part.id);
     }
@@ -1320,7 +1366,7 @@ $("#hexInput").addEventListener("change", async event => {
     const state = await post("/api/upload-firmware", {
       mcuId: mcu.id,
       text: await file.text(),
-      device: "PIC10F200"
+      device: mcuDevice(mcu)
     });
     mcu.attrs ||= {};
     mcu.attrs.firmware = state.firmware;

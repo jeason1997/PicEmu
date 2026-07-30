@@ -72,7 +72,7 @@ STM32F103 和 FPGA 的构建、烧录依赖各自工具链，参见：
 | `buzzer` | 按键触发蜂鸣器 |
 | `led_chaser` | GP0～GP2 三路流水灯 |
 | `playmusic` | 用软件方波播放一段简单旋律 |
-| `spi_flash` | PIC10F200 用软件 SPI 读取 W25Q，并校验 `PICEMU!` |
+| `spi_flash` | PIC10F202用通用软件SPI接口向W25Q写入并读回`HelloWorld` |
 
 每个示例拥有独立的 `main.c`、`Makefile`、`diagram.json` 和 `build/`。
 详细构建方式和平台兼容性见[示例说明](docs/examples.md)。

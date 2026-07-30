@@ -4,9 +4,27 @@
 #include <string.h>
 
 enum {
+    W25Q_COMMAND_PAGE_PROGRAM = 0x02,
     W25Q_COMMAND_READ = 0x03,
+    W25Q_COMMAND_READ_STATUS = 0x05,
+    W25Q_COMMAND_WRITE_ENABLE = 0x06,
     W25Q_COMMAND_JEDEC_ID = 0x9F
 };
+
+static void reset_transaction(SimW25q *flash)
+{
+    flash->command = 0;
+    flash->input_byte = 0;
+    flash->input_bits = 0;
+    flash->address = 0;
+    flash->address_bytes = 0;
+    flash->output_active = false;
+    flash->hold_first_falling = false;
+    flash->output_byte = 0;
+    flash->output_bit = 0;
+    flash->jedec_index = 0;
+    flash->miso_high = false;
+}
 
 static uint8_t jedec_byte(const SimW25q *flash, unsigned index)
 {
@@ -45,17 +63,34 @@ static void accept_byte(SimW25q *flash, uint8_t value)
         if (value == W25Q_COMMAND_JEDEC_ID) {
             flash->jedec_index = 0;
             begin_output(flash, jedec_byte(flash, 0));
+        } else if (value == W25Q_COMMAND_READ_STATUS) {
+            begin_output(flash, flash->write_enable ? 0x02u : 0x00u);
+        } else if (value == W25Q_COMMAND_WRITE_ENABLE) {
+            flash->write_enable = true;
         }
         return;
     }
 
-    if (flash->command == W25Q_COMMAND_READ &&
+    if ((flash->command == W25Q_COMMAND_READ ||
+         flash->command == W25Q_COMMAND_PAGE_PROGRAM) &&
         flash->address_bytes < 3) {
         flash->address = (flash->address << 8) | value;
         ++flash->address_bytes;
-        if (flash->address_bytes == 3) {
+        if (flash->address_bytes == 3 &&
+            flash->command == W25Q_COMMAND_READ) {
             begin_output(flash, read_current_byte(flash));
         }
+        return;
+    }
+
+    if (flash->command == W25Q_COMMAND_PAGE_PROGRAM &&
+        flash->address_bytes == 3 && flash->write_enable) {
+        uint32_t page_base = flash->address & ~0xFFu;
+        uint32_t next_offset = (flash->address + 1u) & 0xFFu;
+        size_t index = flash->address % flash->capacity;
+        /* NOR Flash页编程只能把位从1写成0，擦除后才能重新变成1。 */
+        flash->data[index] &= value;
+        flash->address = page_base | next_offset;
     }
 }
 
@@ -81,6 +116,9 @@ static void advance_output(SimW25q *flash)
         flash->jedec_index =
             (flash->jedec_index + 1u) % 3u;
         begin_output(flash, jedec_byte(flash, flash->jedec_index));
+        flash->hold_first_falling = false;
+    } else if (flash->command == W25Q_COMMAND_READ_STATUS) {
+        begin_output(flash, flash->write_enable ? 0x02u : 0x00u);
         flash->hold_first_falling = false;
     } else {
         flash->output_active = false;
@@ -119,15 +157,8 @@ void sim_w25q_reset_bus(SimW25q *flash)
     flash->clock_high = false;
     flash->mosi_high = false;
     flash->miso_high = false;
-    flash->command = 0;
-    flash->input_byte = 0;
-    flash->input_bits = 0;
-    flash->address = 0;
-    flash->address_bytes = 0;
-    flash->output_active = false;
-    flash->output_byte = 0;
-    flash->output_bit = 0;
-    flash->jedec_index = 0;
+    flash->write_enable = false;
+    reset_transaction(flash);
 }
 
 void sim_w25q_set_lines(SimW25q *flash, bool cs_high,
@@ -138,7 +169,12 @@ void sim_w25q_set_lines(SimW25q *flash, bool cs_high,
 
     if (flash == NULL || flash->data == NULL) return;
     if (cs_high) {
-        if (!flash->cs_high) sim_w25q_reset_bus(flash);
+        if (!flash->cs_high) {
+            if (flash->command == W25Q_COMMAND_PAGE_PROGRAM) {
+                flash->write_enable = false;
+            }
+            reset_transaction(flash);
+        }
         flash->cs_high = true;
         flash->clock_high = clock_high;
         flash->mosi_high = mosi_high;
@@ -147,13 +183,7 @@ void sim_w25q_set_lines(SimW25q *flash, bool cs_high,
     if (flash->cs_high) {
         flash->cs_high = false;
         flash->clock_high = false;
-        flash->command = 0;
-        flash->input_byte = 0;
-        flash->input_bits = 0;
-        flash->address = 0;
-        flash->address_bytes = 0;
-        flash->output_active = false;
-        flash->miso_high = false;
+        reset_transaction(flash);
     }
 
     rising = !flash->clock_high && clock_high;
@@ -187,5 +217,20 @@ bool sim_w25q_read(const SimW25q *flash, size_t offset,
         return false;
     }
     memcpy(target, flash->data + offset, count);
+    return true;
+}
+
+bool sim_w25q_write(SimW25q *flash, size_t offset,
+                    const uint8_t *source, size_t count)
+{
+    if (flash == NULL || flash->data == NULL || source == NULL ||
+        offset > flash->capacity || count > flash->capacity - offset) {
+        return false;
+    }
+    /*
+     * 这是供仿真器属性面板使用的数据编辑接口，不是SPI页编程命令，
+     * 因此允许直接设置0和1。固件通过SPI写入时仍遵守NOR只能1变0的约束。
+     */
+    memcpy(flash->data + offset, source, count);
     return true;
 }

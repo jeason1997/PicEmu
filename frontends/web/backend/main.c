@@ -313,6 +313,27 @@ static void print_w25q_data(char **cursor)
     fflush(stdout);
 }
 
+static void write_w25q_data(char **cursor)
+{
+    char *offset_text = next_field(cursor);
+    char *data_text = next_field(cursor);
+    uint8_t data[512];
+    size_t count;
+    size_t offset;
+
+    if (!w25q_attached || offset_text == NULL || data_text == NULL) {
+        print_error("W25Q尚未配置或写入参数不完整");
+        return;
+    }
+    offset = (size_t)strtoull(offset_text, NULL, 0);
+    if (!parse_initial_data(data_text, data, sizeof(data), &count) ||
+        !sim_w25q_write(&w25q, offset, data, count)) {
+        print_error("W25Q写入数据格式或地址范围无效");
+        return;
+    }
+    print_state(false);
+}
+
 static void set_breakpoints(const char *list)
 {
     const char *cursor = list;
@@ -428,6 +449,8 @@ int main(void)
             configure_w25q(&cursor);
         } else if (strcmp(command, "w25_read") == 0) {
             print_w25q_data(&cursor);
+        } else if (strcmp(command, "w25_write") == 0) {
+            write_w25q_data(&cursor);
         } else {
             print_error("未知的Web后端命令");
         }

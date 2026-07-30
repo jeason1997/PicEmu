@@ -74,6 +74,48 @@ static void test_w25q_spi_read(void)
     sim_w25q_destroy(&flash);
 }
 
+static void test_w25q_spi_program(void)
+{
+    SimW25q flash;
+    uint8_t value = 0;
+
+    CHECK(sim_w25q_init(&flash, 128u * 1024u, NULL, 0));
+
+    /* 没有先发送写使能时，页编程必须被忽略。 */
+    sim_w25q_set_lines(&flash, false, false, false);
+    w25_send_byte(&flash, 0x02);
+    w25_send_byte(&flash, 0x00);
+    w25_send_byte(&flash, 0x01);
+    w25_send_byte(&flash, 0x00);
+    w25_send_byte(&flash, 0xA5);
+    sim_w25q_set_lines(&flash, true, false, false);
+    CHECK(sim_w25q_read(&flash, 0x100, &value, 1));
+    CHECK(value == 0xFF);
+
+    sim_w25q_set_lines(&flash, false, false, false);
+    w25_send_byte(&flash, 0x06);
+    sim_w25q_set_lines(&flash, true, false, false);
+
+    sim_w25q_set_lines(&flash, false, false, false);
+    w25_send_byte(&flash, 0x02);
+    w25_send_byte(&flash, 0x00);
+    w25_send_byte(&flash, 0x01);
+    w25_send_byte(&flash, 0x00);
+    w25_send_byte(&flash, 0xA5);
+    sim_w25q_set_lines(&flash, true, false, false);
+    CHECK(sim_w25q_read(&flash, 0x100, &value, 1));
+    CHECK(value == 0xA5);
+    CHECK(!flash.write_enable);
+
+    value = 0x5A;
+    CHECK(sim_w25q_write(&flash, 0x100, &value, 1));
+    value = 0;
+    CHECK(sim_w25q_read(&flash, 0x100, &value, 1));
+    CHECK(value == 0x5A);
+
+    sim_w25q_destroy(&flash);
+}
+
 static HexImage blank_image(bool watchdog_enabled)
 {
     HexImage image;
@@ -484,6 +526,7 @@ int main(void)
     test_fast_countdown_loop();
     test_fast_xc8_postdecrement_loop();
     test_w25q_spi_read();
+    test_w25q_spi_program();
 
     if (failures != 0) {
         fprintf(stderr, "CPU单元测试失败：%u项\n", failures);

@@ -5,7 +5,7 @@
   "parts": [
     {
       "id": "mcu",
-      "type": "pic10f200",
+      "type": "pic10f202",
       "left": 300,
       "top": 180,
       "attrs": {
@@ -15,28 +15,87 @@
     {
       "id": "flash",
       "type": "w25q",
-      "left": 650,
+      "left": 770,
       "top": 180,
       "attrs": {
         "capacity": 2097152,
-        "data": "50 49 43 45 4D 55 21"
+        "data": ""
       }
     },
     {
       "id": "result",
       "type": "led",
-      "left": 170,
-      "top": 340,
+      "left": 840,
+      "top": 390,
       "attrs": {
         "color": "green"
       }
     }
   ],
   "connections": [
-    ["mcu:GP0", "flash:/CS", "yellow", []],
-    ["mcu:GP1", "flash:CLK", "blue", []],
-    ["mcu:GP2", "flash:DI", "green", []],
-    ["mcu:GP3", "flash:DO", "orange", []],
-    ["mcu:GP2", "result:A", "green", []]
+    [
+      "mcu:GP0",
+      "flash:/CS",
+      "yellow",
+      [
+        [
+          260,
+          230
+        ],
+        [
+          260,
+          140
+        ],
+        [
+          620,
+          140
+        ],
+        [
+          620,
+          204
+        ]
+      ]
+    ],
+    [
+      "mcu:GP1",
+      "flash:CLK",
+      "blue",
+      [
+        [
+          260,
+          350
+        ],
+        [
+          260,
+          460
+        ],
+        [
+          630,
+          460
+        ],
+        [
+          630,
+          264
+        ]
+      ]
+    ],
+    [
+      "mcu:GP2",
+      "flash:DI",
+      "green",
+      []
+    ],
+    [
+      "mcu:GP3",
+      "flash:DO",
+      "orange",
+      []
+    ],
+    [
+      "mcu:GP2",
+      "result:A",
+      "green",
+      []
+    ]
   ]
 }

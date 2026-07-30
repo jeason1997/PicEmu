@@ -3,7 +3,7 @@
 #pragma config WDTE = OFF
 
 /*
- * PIC10F200没有硬件SPI，本例用普通GPIO模拟SPI Mode 0。
+ * PIC10F202没有硬件SPI，本例用普通GPIO模拟SPI Mode 0。
  *
  * GP0：W25Q的/CS片选
  * GP1：W25Q的CLK时钟
@@ -14,8 +14,17 @@
 #define PIN_CS   0x01
 #define PIN_CLK  0x02
 #define PIN_MOSI 0x04
+#define FLASH_SELECT() do { \
+    gpio_output &= (unsigned char)~PIN_CS; \
+    GPIO = gpio_output; \
+} while (0)
+#define FLASH_DESELECT() do { \
+    gpio_output |= PIN_CS; \
+    GPIO = gpio_output; \
+} while (0)
 
 static unsigned char gpio_output = PIN_CS;
+static unsigned char buffer[5];
 
 static unsigned char spi_transfer(unsigned char value)
 {
@@ -44,40 +53,94 @@ static unsigned char spi_transfer(unsigned char value)
     return result;
 }
 
-static unsigned char flash_read_byte(unsigned char address)
+/*
+ * 向指定地址写入一段数据，不局限于示例字符串。
+ * PIC10F202的资源很小，本教学接口使用16位地址，并要求单次数据不跨256字节页。
+ */
+static void w25q_write(unsigned int address,
+                       const unsigned char *data,
+                       unsigned char length)
 {
-    unsigned char value;
+    unsigned char index;
+    unsigned char status;
 
-    gpio_output &= (unsigned char)~PIN_CS;
-    GPIO = gpio_output;
-    spi_transfer(0x03); /* 低速读取命令 */
-    spi_transfer(0x00); /* 24位地址的高字节 */
+    FLASH_SELECT();
+    spi_transfer(0x06);
+    FLASH_DESELECT();
+
+    FLASH_SELECT();
+    spi_transfer(0x02);
     spi_transfer(0x00);
-    spi_transfer(address);
-    value = spi_transfer(0x00);
-    gpio_output |= PIN_CS;
-    GPIO = gpio_output;
-    return value;
+    spi_transfer((unsigned char)(address >> 8));
+    spi_transfer((unsigned char)address);
+    for (index = 0; index < length; ++index) {
+        spi_transfer(data[index]);
+    }
+    FLASH_DESELECT();
+
+    do {
+        FLASH_SELECT();
+        spi_transfer(0x05);
+        status = spi_transfer(0x00);
+        FLASH_DESELECT();
+    } while ((status & 0x01) != 0);
+}
+
+/* 从指定地址连续读取任意内容到调用者提供的缓冲区。 */
+static void w25q_read(unsigned int address,
+                      unsigned char *data,
+                      unsigned char length)
+{
+    unsigned char index;
+
+    FLASH_SELECT();
+    spi_transfer(0x03);
+    spi_transfer(0x00);
+    spi_transfer((unsigned char)(address >> 8));
+    spi_transfer((unsigned char)address);
+    for (index = 0; index < length; ++index) {
+        data[index] = spi_transfer(0x00);
+    }
+    FLASH_DESELECT();
 }
 
 void main(void)
 {
-    unsigned char ok;
+    unsigned char mismatch = 0;
 
     TRISGPIO = 0b111000; /* GP0、GP1、GP2输出，GP3输入 */
     GPIO = gpio_output;
 
-    /* 检查Flash地址0开始的“PICEMU!”七个字符。 */
-    ok = flash_read_byte(0) == 'P';
-    ok &= flash_read_byte(1) == 'I';
-    ok &= flash_read_byte(2) == 'C';
-    ok &= flash_read_byte(3) == 'E';
-    ok &= flash_read_byte(4) == 'M';
-    ok &= flash_read_byte(5) == 'U';
-    ok &= flash_read_byte(6) == '!';
+    buffer[0] = 'H';
+    buffer[1] = 'e';
+    buffer[2] = 'l';
+    buffer[3] = 'l';
+    buffer[4] = 'o';
+    w25q_write(0, buffer, sizeof(buffer));
 
-    /* 结束SPI通信后，GP2复用为结果LED：亮表示读取和校验成功。 */
-    gpio_output = PIN_CS | (ok ? PIN_MOSI : 0);
+    w25q_read(0, buffer, sizeof(buffer));
+    mismatch |= buffer[0] ^ 'H';
+    mismatch |= buffer[1] ^ 'e';
+    mismatch |= buffer[2] ^ 'l';
+    mismatch |= buffer[3] ^ 'l';
+    mismatch |= buffer[4] ^ 'o';
+
+    buffer[0] = 'W';
+    buffer[1] = 'o';
+    buffer[2] = 'r';
+    buffer[3] = 'l';
+    buffer[4] = 'd';
+    w25q_write(5, buffer, sizeof(buffer));
+
+    w25q_read(5, buffer, sizeof(buffer));
+    mismatch |= buffer[0] ^ 'W';
+    mismatch |= buffer[1] ^ 'o';
+    mismatch |= buffer[2] ^ 'r';
+    mismatch |= buffer[3] ^ 'l';
+    mismatch |= buffer[4] ^ 'd';
+
+    /* GP2亮表示写入和读回的数据完全一致。 */
+    gpio_output = PIN_CS | (mismatch == 0 ? PIN_MOSI : 0);
     GPIO = gpio_output;
 
     for (;;) {

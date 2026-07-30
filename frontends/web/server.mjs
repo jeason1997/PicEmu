@@ -207,6 +207,8 @@ async function api(request, response, url) {
       ];
     } else if (command === "w25_read") {
       fields = ["w25_read", value.offset || 0, value.count || 256];
+    } else if (command === "w25_write") {
+      fields = ["w25_write", value.offset || 0, value.data || ""];
     } else if (["reset", "state", "flash"].includes(command)) {
       fields = [command];
     } else {
