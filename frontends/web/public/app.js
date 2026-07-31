@@ -37,6 +37,11 @@ const model = {
   lastFrame: performance.now(),
   budget: 0,
   requestPending: false,
+  /*
+   * 区分“刚加载/刚复位、尚未执行固件”和普通暂停。首次执行前需要重新应用
+   * diagram.json 的外设初值，避免启动前的调试写入改变固件所见的上电状态。
+   */
+  executionStarted: false,
   audio: null,
   oscillator: null,
   gain: null,
@@ -48,6 +53,11 @@ const model = {
   historyIndex: -1,
   w25Offsets: new Map(),
   w25RefreshPending: false,
+  /*
+   * 查看器读取是异步的。切换示例或重建属性面板时递增此代次，使旧请求即使
+   * 较晚返回，也不能再把已经失效的 DOM 和新电路的显示状态覆盖掉。
+   */
+  w25RefreshGeneration: 0,
   w25LastRefresh: 0
 };
 
@@ -890,13 +900,32 @@ async function refreshW25Memory(part) {
   offset = Math.max(0, Math.min(capacity - 1, offset));
   offset = Math.floor(offset / 16) * 16;
   const count = Math.min(256, capacity - offset);
+  const generation = ++model.w25RefreshGeneration;
   model.w25RefreshPending = true;
   try {
     const result = await post("/api/command", {
       command: "w25_read", mcuId: wiring.mcuId, offset, count
     });
+    /*
+     * 请求发出后，用户可能已经切换器件或重新打开了示例。只允许当前一代请求
+     * 更新当前属性面板，避免旧 Flash 数据短暂或永久覆盖新实例的数据显示。
+     */
+    if (generation !== model.w25RefreshGeneration ||
+        model.selected !== part.id || $("#w25Dump") !== dump) return;
     model.w25Offsets.set(part.id, offset);
-    dump.textContent = formatW25Dump(offset, result.data);
+    const formatted = formatW25Dump(offset, result.data);
+    const selection = window.getSelection();
+    const selectingDump = selection && !selection.isCollapsed &&
+      ((selection.anchorNode && dump.contains(selection.anchorNode)) ||
+       (selection.focusNode && dump.contains(selection.focusNode)));
+    /*
+     * 每 200 ms 无条件改写 textContent 会销毁浏览器的文本选择。内容没变化时
+     * 不触碰 DOM；用户正在选择数据时即使内容变化也暂缓显示，松开选择后下次
+     * 轮询自然追上真实器件状态，复制操作因此不会被后台刷新打断。
+     */
+    if (dump.textContent !== formatted && !selectingDump) {
+      dump.textContent = formatted;
+    }
     const offsetInput = $("#w25Offset");
     if (offsetInput) offsetInput.value = String(offset);
     const pageText = $("#w25Page");
@@ -906,9 +935,14 @@ async function refreshW25Memory(part) {
         `第 ${Math.floor(offset / 256) + 1} / ${totalPages} 页`;
     }
   } catch (error) {
-    dump.textContent = `读取失败：${error.message}`;
+    if (generation === model.w25RefreshGeneration &&
+        model.selected === part.id && $("#w25Dump") === dump) {
+      dump.textContent = `读取失败：${error.message}`;
+    }
   } finally {
-    model.w25RefreshPending = false;
+    if (generation === model.w25RefreshGeneration) {
+      model.w25RefreshPending = false;
+    }
   }
 }
 
@@ -1100,22 +1134,41 @@ function updateBuzzer() {
 
 async function loadDiagram(diagram, name = "电路", diagramPath = null) {
   pause();
+  const previousSelection = model.selected;
+  /*
+   * 使旧电路尚未完成的 W25Q 读取立即失效，并清掉旧属性面板。否则重新打开
+   * 示例后，后端虽已创建新 Flash，右侧仍可能保留上一个实例的内存快照。
+   */
+  model.w25RefreshGeneration++;
+  model.w25RefreshPending = false;
+  $("#partInspector").innerHTML = "<p>选择器件以查看和编辑属性。</p>";
   model.diagram = diagram;
   model.diagramName = name;
   model.diagramPath = diagramPath;
   model.states.clear();
   model.state = null;
   model.activeMcuId = null;
+  model.executionStarted = false;
   model.breakpoints.clear();
   model.w25Offsets.clear();
-  model.selected = null;
-  model.selectedIds.clear();
   model.selectedConnection = null;
   model.diagram.parts ||= [];
   model.diagram.connections ||= [];
+  /*
+   * 重新打开同一示例时保留仍然存在的器件选择。属性面板会绑定到新 diagram
+   * 对象中的实例，既不显示旧快照，也不要求用户先选择其他器件再选回来。
+   */
+  model.selected = model.diagram.parts.some(
+    part => part.id === previousSelection) ? previousSelection : null;
+  model.selectedIds.clear();
+  if (model.selected) model.selectedIds.add(model.selected);
   $("#diagramName").textContent = name;
   $("#saveDiagramBtn").disabled = diagramPath === null;
   renderAll();
+  if (model.selected) {
+    showPartInspector(model.diagram.parts.find(
+      part => part.id === model.selected));
+  }
   resetHistory();
   requestAnimationFrame(fitDiagram);
   const mcus = mcuParts();
@@ -1173,20 +1226,39 @@ function pause() {
   updateBuzzer();
 }
 
+async function prepareFirstExecution() {
+  if (model.executionStarted) return;
+  /*
+   * 属性面板写入是运行期调试操作。若固件还一条指令都没有执行，首次运行或
+   * 单步必须从电路文件定义的 Flash 初值开始，不能让预运行调试数据参与 NOR
+   * 页编程的按位与运算并破坏示例结果。
+   */
+  model.w25RefreshGeneration++;
+  model.w25RefreshPending = false;
+  await configureAllW25(true);
+  model.executionStarted = true;
+}
+
 $("#runBtn").addEventListener("click", async () => {
   if (![...model.states.values()].some(state => state.loaded)) {
     return message("请先为至少一个芯片加载HEX固件", true);
   }
-  model.running = true;
-  model.lastFrame = performance.now();
-  $("#runState").textContent = "运行中";
-  $("#runState").className = "status running";
-  if (model.audio?.state === "suspended") await model.audio.resume();
+  try {
+    await prepareFirstExecution();
+    model.running = true;
+    model.lastFrame = performance.now();
+    $("#runState").textContent = "运行中";
+    $("#runState").className = "status running";
+    if (model.audio?.state === "suspended") await model.audio.resume();
+  } catch (error) {
+    message(error.message, true);
+  }
 });
 $("#pauseBtn").addEventListener("click", pause);
 $("#stepBtn").addEventListener("click", async () => {
   pause();
   try {
+    await prepareFirstExecution();
     const before = model.state?.pc;
     const instruction = Number.isInteger(before)
       ? model.instructions[before] || "未知指令" : "未知指令";
@@ -1196,10 +1268,29 @@ $("#stepBtn").addEventListener("click", async () => {
 });
 $("#resetBtn").addEventListener("click", async () => {
   pause();
+  model.w25RefreshGeneration++;
+  model.w25RefreshPending = false;
   try {
     await Promise.all([...model.states.entries()]
       .filter(([, state]) => state.loaded)
       .map(([id]) => command("reset", {}, id)));
+    /*
+     * “复位程序”表示把电路恢复到 diagram.json 描述的启动状态。W25Q 的运行时
+     * 编辑不能成为新的上电初值，否则 NOR Flash 中已写成 0 的位会令示例固件
+     * 无法再次写回 HelloWorld。重新配置后，固件会从干净的初始数据重新运行。
+     */
+    await configureAllW25(true);
+    model.executionStarted = false;
+    /*
+     * 复位期间动画帧仍可能发起查看器读取；配置完成后再次换代，保证最终刷新
+     * 一定读取重建后的 Flash，而不是复位过程中的过渡状态。
+     */
+    model.w25RefreshGeneration++;
+    model.w25RefreshPending = false;
+    const selectedFlash = model.diagram.parts.find(
+      part => part.id === model.selected && part.type === "w25q");
+    if (selectedFlash) await refreshW25Memory(selectedFlash);
+    message("程序和外设已复位");
   } catch (error) { message(error.message, true); }
 });
 
@@ -1382,10 +1473,6 @@ function showPartInspector(part) {
         message(error.message, true);
       }
     });
-    $("#propW25InitialData").addEventListener("change", event => {
-      attrs.data = event.target.value.trim();
-      recordHistory();
-    });
     const movePage = async delta => {
       const capacity = Number(attrs.capacity || 2097152);
       const current = Number(model.w25Offsets.get(part.id) || 0);
@@ -1400,7 +1487,7 @@ function showPartInspector(part) {
       await refreshW25Memory(part);
     });
     $("#w25Write").addEventListener("click", async () => {
-      attrs.data = $("#propW25InitialData").value.trim();
+      const data = $("#propW25InitialData").value.trim();
       const wiring = w25Wiring(part);
       if (!wiring) return message(`${part.id}的SPI连线不完整`, true);
       try {
@@ -1408,10 +1495,9 @@ function showPartInspector(part) {
           command: "w25_write",
           mcuId: wiring.mcuId,
           offset: 0,
-          data: attrs.data
+          data
         });
         model.w25Offsets.set(part.id, 0);
-        recordHistory();
         await refreshW25Memory(part);
         message(`${part.id}已从地址0写入输入数据`);
       } catch (error) {

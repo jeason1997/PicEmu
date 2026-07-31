@@ -54,6 +54,8 @@ export default {
       margin-top:8px;max-height:310px;overflow:auto;padding:8px;
       background:#0d131b;border:1px solid var(--line);border-radius:5px;
       color:#c8d4e3;font:11px/1.55 ui-monospace,monospace;white-space:pre;
+      /* 明确允许选择，避免画布器件的 user-select:none 规则或浏览器默认行为干扰复制。 */
+      user-select:text;cursor:text;
     }`,
   pins: [
     pin("/CS", "1 /CS", "left", 12),
