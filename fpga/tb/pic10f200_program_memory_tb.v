@@ -3,7 +3,8 @@
 /*
  * 程序存储器接口测试。
  *
- * 该测试只验证同步取指和地址越界行为，不依赖 blink 等具体应用固件。
+ * 该测试使用短夹具验证已提供地址的同步取指，不读取夹具范围之外的地址。
+ * 正式 hex_to_mem.py 固定生成完整 256 字镜像，完整地址范围由真实固件测试覆盖。
  * BSRAM 的实际映射由 FPGA 综合资源报告另外验证。
  */
 module pic10f200_program_memory_tb;
@@ -45,7 +46,6 @@ module pic10f200_program_memory_tb;
         check_word(1, 12'habc);
         check_word(2, 12'h000);
         check_word(3, 12'hfff);
-        check_word(64, 12'h000);
         $display("PASS: synchronous PIC program memory");
         $finish;
     end
