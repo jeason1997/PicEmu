@@ -238,6 +238,10 @@ async function api(request, response, url) {
       fields = [
         "hc595_config", value.dataPin, value.clockPin, value.latchPin
       ];
+    } else if (command === "max7219_config") {
+      fields = [
+        "max7219_config", value.dataPin, value.clockPin, value.loadPin
+      ];
     } else if (["reset", "state", "flash"].includes(command)) {
       fields = [command];
     } else {

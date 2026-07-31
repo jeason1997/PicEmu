@@ -4,6 +4,7 @@
 #include "picemu/sim/devices/i2c_lcd1602.h"
 #include "picemu/sim/devices/hc595.h"
 #include "picemu/sim/devices/seven_segment.h"
+#include "picemu/sim/devices/max7219.h"
 #include "picemu/sim/devices/w25q.h"
 
 #include <inttypes.h>
@@ -45,6 +46,11 @@ static unsigned hc595_clock_pin;
 static unsigned hc595_latch_pin;
 static SimSevenSegment seven_segment;
 static bool seven_segment_attached;
+static SimMax7219 max7219;
+static bool max7219_attached;
+static unsigned max7219_data_pin;
+static unsigned max7219_clock_pin;
+static unsigned max7219_load_pin;
 
 static char *next_field(char **cursor);
 
@@ -121,6 +127,16 @@ static void print_state(bool include_flash)
     if (hc595_attached) {
         printf(",\"hc595\":{\"shiftRegister\":%u,\"outputs\":%u}",
                hc595.shift_register, hc595.outputs);
+    }
+    if (max7219_attached) {
+        fputs(",\"max7219\":{\"rows\":[", stdout);
+        for (i = 0; i < 8; ++i) {
+            if (i != 0) putchar(',');
+            printf("%u", sim_max7219_visible_row(&max7219, i));
+        }
+        printf("],\"intensity\":%u,\"scanLimit\":%u,\"shutdown\":%s}",
+               max7219.intensity, max7219.scan_limit,
+               max7219.shutdown ? "true" : "false");
     }
 
     fputs(",\"stack\":[", stdout);
@@ -246,6 +262,26 @@ static void update_hc595_lines(void)
     }
 }
 
+static void set_max7219_input(unsigned pin, bool high)
+{
+    SimLevel level = high ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW;
+    max7219.base.observed[pin] = level;
+    max7219.base.ops->pin_changed(&max7219.base, pin, level);
+}
+
+static void update_max7219_lines(void)
+{
+    uint8_t gpio;
+    if (!max7219_attached) return;
+    gpio = pic10_gpio_value(&cpu);
+    set_max7219_input(SIM_MAX7219_DIN,
+        (gpio & (1u << max7219_data_pin)) != 0);
+    set_max7219_input(SIM_MAX7219_CLK,
+        (gpio & (1u << max7219_clock_pin)) != 0);
+    set_max7219_input(SIM_MAX7219_LOAD,
+        (gpio & (1u << max7219_load_pin)) != 0);
+}
+
 static unsigned step_cpu(void)
 {
     unsigned consumed;
@@ -255,6 +291,7 @@ static unsigned step_cpu(void)
     update_w25q_lines();
     update_lcd1602_lines();
     update_hc595_lines();
+    update_max7219_lines();
     return consumed;
 }
 
@@ -444,6 +481,33 @@ static void configure_seven_segment(char **cursor)
     print_state(false);
 }
 
+static void configure_max7219(char **cursor)
+{
+    char *data_text = next_field(cursor);
+    char *clock_text = next_field(cursor);
+    char *load_text = next_field(cursor);
+    unsigned pins[3];
+    if (data_text == NULL || clock_text == NULL || load_text == NULL) {
+        print_error("MAX7219配置参数不完整");
+        return;
+    }
+    pins[0] = (unsigned)strtoul(data_text, NULL, 0);
+    pins[1] = (unsigned)strtoul(clock_text, NULL, 0);
+    pins[2] = (unsigned)strtoul(load_text, NULL, 0);
+    if (pins[0] > 3u || pins[1] > 3u || pins[2] > 3u ||
+        pins[0] == pins[1] || pins[0] == pins[2] || pins[1] == pins[2]) {
+        print_error("MAX7219 GPIO引脚无效");
+        return;
+    }
+    sim_max7219_init(&max7219, "max7219");
+    max7219_data_pin = pins[0];
+    max7219_clock_pin = pins[1];
+    max7219_load_pin = pins[2];
+    max7219_attached = true;
+    update_max7219_lines();
+    print_state(false);
+}
+
 static void print_w25q_data(char **cursor)
 {
     char *offset_text = next_field(cursor);
@@ -565,6 +629,7 @@ int main(void)
                 lcd1602_attached = false;
                 hc595_attached = false;
                 seven_segment_attached = false;
+                max7219_attached = false;
                 loaded = true;
                 print_state(true);
             }
@@ -592,6 +657,10 @@ int main(void)
             if (hc595_attached) {
                 hc595.base.ops->reset(&hc595.base);
                 update_hc595_lines();
+            }
+            if (max7219_attached) {
+                max7219.base.ops->reset(&max7219.base);
+                update_max7219_lines();
             }
             print_state(false);
         } else if (strcmp(command, "step") == 0) {
@@ -632,6 +701,8 @@ int main(void)
             configure_seven_segment(&cursor);
         } else if (strcmp(command, "hc595_config") == 0) {
             configure_hc595(&cursor);
+        } else if (strcmp(command, "max7219_config") == 0) {
+            configure_max7219(&cursor);
         } else {
             print_error("未知的Web后端命令");
         }

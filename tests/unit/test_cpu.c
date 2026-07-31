@@ -5,6 +5,8 @@
 #include "picemu/sim/device.h"
 #include "picemu/sim/devices/led.h"
 #include "picemu/sim/devices/hc595.h"
+#include "picemu/sim/devices/max7219.h"
+#include "picemu/sim/devices/led_matrix_8x8.h"
 #include "picemu/sim/devices/seven_segment.h"
 #include "picemu/sim/devices/button.h"
 #include "picemu/sim/devices/buzzer.h"
@@ -430,6 +432,52 @@ static void test_seven_segment_shift_and_latch(void)
     CHECK(sim_seven_segment_visible_segments(&display) == 0);
 }
 
+static void max7219_send(SimMax7219 *chip, uint8_t address, uint8_t data)
+{
+    unsigned bit;
+    SimDevice *device = &chip->base;
+    device->observed[SIM_MAX7219_LOAD] = SIM_LEVEL_LOW;
+    device->ops->pin_changed(device, SIM_MAX7219_LOAD, SIM_LEVEL_LOW);
+    for (bit = 0; bit < 16; ++bit) {
+        bool one = (((uint16_t)address << 8 | data) &
+                    (0x8000u >> bit)) != 0;
+        device->observed[SIM_MAX7219_DIN] = one
+            ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW;
+        device->observed[SIM_MAX7219_CLK] = SIM_LEVEL_HIGH;
+        device->ops->pin_changed(device, SIM_MAX7219_CLK, SIM_LEVEL_HIGH);
+        device->observed[SIM_MAX7219_CLK] = SIM_LEVEL_LOW;
+        device->ops->pin_changed(device, SIM_MAX7219_CLK, SIM_LEVEL_LOW);
+    }
+    device->observed[SIM_MAX7219_LOAD] = SIM_LEVEL_HIGH;
+    device->ops->pin_changed(device, SIM_MAX7219_LOAD, SIM_LEVEL_HIGH);
+}
+
+static void test_max7219_and_led_matrix(void)
+{
+    SimMax7219 chip;
+    SimLedMatrix8x8 matrix;
+    unsigned pin;
+
+    sim_max7219_init(&chip, "MAX7219");
+    sim_led_matrix_8x8_init(&matrix, "8x8 matrix", true);
+    max7219_send(&chip, 0x0C, 1);       /* 退出关断模式。 */
+    max7219_send(&chip, 1, 0x81);
+    CHECK(sim_max7219_visible_row(&chip, 0) == 0x81);
+
+    for (pin = 0; pin < 8; ++pin) {
+        matrix.base.observed[pin] = chip.base.drive[SIM_MAX7219_SEG0 + pin];
+        matrix.base.observed[8 + pin] = chip.base.drive[SIM_MAX7219_DIG0 + pin];
+    }
+    matrix.base.ops->pin_changed(&matrix.base, 0,
+                                 matrix.base.observed[0]);
+    CHECK(sim_led_matrix_8x8_row(&matrix, 0) == 0x81);
+
+    max7219_send(&chip, 0x0F, 1);
+    CHECK(sim_max7219_visible_row(&chip, 3) == 0xFF);
+    max7219_send(&chip, 0x0C, 0);
+    CHECK(sim_max7219_visible_row(&chip, 0) == 0);
+}
+
 static void test_buzzer_uses_configured_clock(void)
 {
     SimBuzzer buzzer;
@@ -554,6 +602,7 @@ int main(void)
     test_passive_buzzer_frequency();
     test_led_pwm_brightness();
     test_seven_segment_shift_and_latch();
+    test_max7219_and_led_matrix();
     test_buzzer_uses_configured_clock();
     test_network_merge();
     test_generic_circuit_properties();

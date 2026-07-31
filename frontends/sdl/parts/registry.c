@@ -3,6 +3,8 @@
 #include "parts/button.h"
 #include "parts/buzzer.h"
 #include "parts/led.h"
+#include "parts/max7219.h"
+#include "parts/led_matrix_8x8.h"
 #include "parts/pic10.h"
 #include "picemu/core/pic_device.h"
 
@@ -24,7 +26,9 @@ typedef struct {
 static const SdlPartFactory FACTORIES[] = {
     {"led",        sdl_part_led_init},
     {"pushbutton", sdl_part_button_init},
-    {"buzzer",     sdl_part_buzzer_init}
+    {"buzzer",     sdl_part_buzzer_init},
+    {"max7219",    sdl_part_max7219_init},
+    {"led-matrix-8x8", sdl_part_led_matrix_8x8_init}
 };
 
 bool sdl_part_create(SdlPart *part, const CircuitPartConfig *config,

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "clockHz": 4000000,
+  "firmware": "examples/max7219_matrix/build/firmware.hex",
+  "parts": [
+    { "id": "mcu", "type": "pic10f200", "left": 180, "top": 250,
+      "attrs": { "firmware": "examples/max7219_matrix/build/firmware.hex" } },
+    { "id": "driver", "type": "max7219", "left": 580, "top": 180, "attrs": {} },
+    { "id": "matrix", "type": "led-matrix-8x8", "left": 980, "top": 180,
+      "attrs": { "color": "red", "commonCathode": true } }
+  ],
+  "connections": [
+    ["mcu:GP0", "driver:DIN", "#55d6a4", []],
+    ["mcu:GP1", "driver:CLK", "#5ca9ff", []],
+    ["mcu:GP2", "driver:LOAD", "#ffd166", []],
+    ["driver:SEG0", "matrix:SEG0", "#ef5964", []],
+    ["driver:SEG1", "matrix:SEG1", "#ef5964", []],
+    ["driver:SEG2", "matrix:SEG2", "#ef5964", []],
+    ["driver:SEG3", "matrix:SEG3", "#ef5964", []],
+    ["driver:SEG4", "matrix:SEG4", "#ef5964", []],
+    ["driver:SEG5", "matrix:SEG5", "#ef5964", []],
+    ["driver:SEG6", "matrix:SEG6", "#ef5964", []],
+    ["driver:SEG7", "matrix:SEG7", "#ef5964", []],
+    ["driver:DIG0", "matrix:DIG0", "#8b9aae", []],
+    ["driver:DIG1", "matrix:DIG1", "#8b9aae", []],
+    ["driver:DIG2", "matrix:DIG2", "#8b9aae", []],
+    ["driver:DIG3", "matrix:DIG3", "#8b9aae", []],
+    ["driver:DIG4", "matrix:DIG4", "#8b9aae", []],
+    ["driver:DIG5", "matrix:DIG5", "#8b9aae", []],
+    ["driver:DIG6", "matrix:DIG6", "#8b9aae", []],
+    ["driver:DIG7", "matrix:DIG7", "#8b9aae", []]
+  ]
+}

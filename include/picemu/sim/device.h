@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define SIM_DEVICE_MAX_PINS 8u
+#define SIM_DEVICE_MAX_PINS 24u
 
 typedef enum {
     SIM_LEVEL_LOW,
