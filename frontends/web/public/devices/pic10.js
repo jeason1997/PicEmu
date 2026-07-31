@@ -21,6 +21,19 @@ function pic10(type, title, detail) {
     pins,
     isMcu: true,
     deviceName: title,
+    styles: `
+      .chip-icon {
+        background:#374151;border:2px solid #94a3b8;
+        box-shadow:-5px 0 0 -3px #94a3b8,5px 0 0 -3px #94a3b8;
+      }
+      .mcu .part-body {
+        width:300px;height:240px;background:#29313c;
+        border:1px solid #94a3b8;border-radius:4px;
+      }
+      .mcu-title {
+        text-align:center;font:700 24px ui-monospace,monospace;
+        padding-top:14px;letter-spacing:1px;
+      }`,
     render() {
       return `<div class="part-body">
         <i class="pin-one"></i><div class="mcu-title">${title}</div></div>`;

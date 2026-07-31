@@ -145,8 +145,10 @@ PIC10 CPU、HEX 加载器、器件描述
 ```
 
 `frontends/web/public/devices/` 中每种器件拥有独立模块，集中声明器件库条目、
-画布尺寸、坐标方式、引脚和 DOM 模板。`app.js` 只通过统一注册表访问这些信息；
-新增 Web 器件时不应再向页面 HTML 或通用渲染函数添加类型判断。
+画布尺寸、坐标方式、引脚、DOM 模板和专属 CSS。注册表会把各模块的样式合并
+到单个 `<style>` 节点，既让样式与实现共置，也不增加额外的 CSS 网络请求。
+`app.js` 只通过统一注册表访问这些信息；新增 Web 器件时不应再向页面 HTML、
+全局 `styles.css` 或通用渲染函数添加类型判断。
 
 Node 服务只监听 `127.0.0.1`。用户上传的 HEX 按 MCU ID 暂存在
 `build/web/uploads/<mcu-id>.hex`，执行 `make clean` 会将其删除。

@@ -52,3 +52,20 @@ export function renderPalette(container) {
         </div>`).join("")}
     </div>`).join("");
 }
+
+export function installDeviceStyles(documentRoot = document) {
+  const styleId = "picemu-device-styles";
+  let style = documentRoot.getElementById(styleId);
+  if (!style) {
+    style = documentRoot.createElement("style");
+    style.id = styleId;
+    documentRoot.head.appendChild(style);
+  }
+  /*
+   * 样式与器件定义共置，但只生成一个 <style> 节点，避免每个器件产生额外
+   * 网络请求或大量零散节点。重复调用时直接覆盖，便于开发阶段热重载。
+   */
+  style.textContent = [...new Set(
+    definitions.map(definition => definition.styles).filter(Boolean)
+  )].join("\n");
+}

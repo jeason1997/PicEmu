@@ -11,6 +11,19 @@ export default {
   className: "hc595-part",
   size: { width: 170, height: 205 },
   positionMode: "top-left",
+  styles: `
+    .hc595-icon {
+      background:#1a293b;color:#8dc5ff;font:700 13px ui-monospace,monospace;
+      border:2px solid #52749a;border-radius:4px;
+    }
+    .hc595-part .part-body {
+      width:170px;height:205px;background:#26323f;border:3px solid #8797aa;
+      border-radius:7px;box-shadow:inset 0 0 16px #0008;
+    }
+    .hc595-title {
+      position:absolute;left:45px;top:85px;font:700 17px ui-monospace,monospace;
+      color:#e5ecf5;
+    }`,
   pins: [
     pin("SER", "SER", "left", 24),
     pin("SRCLK", "SRCLK", "left", 74),

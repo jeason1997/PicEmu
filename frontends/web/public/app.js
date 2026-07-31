@@ -1,5 +1,5 @@
 import {
-  deviceDefinition, hasDevice, isMcuType, renderPalette
+  deviceDefinition, hasDevice, installDeviceStyles, isMcuType, renderPalette
 } from "./devices/registry.js";
 import { capacities as W25_CAPACITIES } from "./devices/w25q.js";
 import { lineHtml as lcdLineHtml } from "./devices/lcd1602.js";
@@ -478,6 +478,7 @@ function uniqueId(type) {
   return value;
 }
 
+installDeviceStyles();
 renderPalette($("#devicePalette"));
 document.querySelectorAll(".palette-item").forEach(item => {
   item.addEventListener("dragstart", event =>

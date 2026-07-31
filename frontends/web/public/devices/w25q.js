@@ -23,6 +23,38 @@ export default {
   className: "flash-chip",
   size: { width: 180, height: 150 },
   positionMode: "top-left",
+  styles: `
+    .flash-icon {
+      border-radius:4px;border:2px solid #94a3b8;font-size:19px;
+    }
+    .flash-chip .part-body {
+      width:180px;height:150px;background:#252d38;
+      border:1px solid #94a3b8;border-radius:4px;
+    }
+    .flash-title {
+      text-align:center;font:700 22px ui-monospace,monospace;
+      padding-top:10px;letter-spacing:1px;
+    }
+    .flash-capacity-label {
+      position:absolute;right:10px;bottom:8px;color:#8fa1b5;
+      font:10px ui-monospace,monospace;
+    }
+    .w25-page-row,.w25-jump-row {
+      display:grid;align-items:center;gap:6px;
+    }
+    .w25-page-row { grid-template-columns:1fr auto 1fr; }
+    .w25-jump-row { grid-template-columns:1fr auto;margin-top:6px; }
+    .w25-page-row span {
+      min-width:92px;color:var(--muted);font-size:12px;text-align:center;
+    }
+    .property-row .w25-page-row button,
+    .property-row .w25-jump-row button { margin-top:0; }
+    .w25-jump-row input { width:100%; }
+    .w25-dump {
+      margin-top:8px;max-height:310px;overflow:auto;padding:8px;
+      background:#0d131b;border:1px solid var(--line);border-radius:5px;
+      color:#c8d4e3;font:11px/1.55 ui-monospace,monospace;white-space:pre;
+    }`,
   pins: [
     pin("/CS", "1 /CS", "left", 12),
     pin("DO", "2 DO (MISO)", "left", 42),

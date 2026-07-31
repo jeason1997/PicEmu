@@ -52,6 +52,33 @@ export default {
   className: "lcd1602-part",
   size: { width: 430, height: 154 },
   positionMode: "top-left",
+  styles: `
+    .lcd-icon {
+      width:34px;height:22px;border:2px solid #5ea16c;border-radius:3px;
+      background:#183522;color:#8fe69c;font:700 9px ui-monospace,monospace;
+    }
+    .lcd1602-part .part-body {
+      width:430px;height:154px;padding:18px 18px 18px 35px;
+      border:2px solid #4d915b;border-radius:5px;background:#1d5d35;
+    }
+    .lcd-bezel {
+      height:100%;padding:10px 12px;border:7px solid #163e25;
+      border-radius:4px;background:#a7ca52;box-shadow:inset 0 0 13px #456521;
+    }
+    .lcd-line {
+      height:43px;display:grid;grid-template-columns:repeat(16,1fr);gap:2px;
+    }
+    .lcd-line + .lcd-line { margin-top:2px; }
+    .lcd-cell {
+      min-width:0;display:grid;grid-template-columns:repeat(5,1fr);
+      grid-template-rows:repeat(8,1fr);gap:1px;padding:2px;
+      border:1px solid #789a3b55;border-radius:2px;background:#9fc34b55;
+    }
+    .lcd-cell i {
+      display:block;min-width:0;min-height:0;border-radius:50%;
+      background:#789b4566;box-shadow:inset 0 0 1px #d5e989;
+    }
+    .lcd-cell i.on { background:#183f28;box-shadow:0 0 1px #183f28; }`,
   pins: [pin("SDA", "SDA", "left", 34), pin("SCL", "SCL", "left", 84)],
   render(part) {
     const address = Number(part.attrs?.address ?? 0x27).toString(16).toUpperCase();

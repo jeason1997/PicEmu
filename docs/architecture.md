@@ -26,7 +26,7 @@ PicEmu/
 │   └── common/            位图文字等公共绘图代码
 ├── frontends/web/
 │   ├── public/
-│   │   ├── devices/       各器件的元数据、引脚和可视模板
+│   │   ├── devices/       各器件的元数据、引脚、模板和专属样式
 │   │   └── app.js         通用画布、连线、调试和状态调度
 │   ├── backend/           面向Web的C调试协议进程
 │   ├── scripts/           Linux主启动脚本和PowerShell包装
