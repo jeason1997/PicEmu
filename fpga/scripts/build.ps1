@@ -82,7 +82,10 @@ try {
     }
 
     Write-Host "[2/4] Synthesizing PIC10F200 and block program RAM..."
-    & $Yosys -p "read_verilog `"$ClockEnableFile`" `"$SynchronizerFile`" `"$ProgramMemoryFile`" `"$CoreFile`" `"$TopFile`"; synth_gowin -nolutram -top top -json `"$SynthJson`""
+    # 允许 16 字节 GPR 推断为分布式 SRAM；256×12 程序 ROM 仍由 ram_style
+    # 属性固定为 BSRAM。禁用 LUTRAM 会把 GPR 展开成 128 个触发器和宽多路器，
+    # 在 GW1NZ-1 上不仅浪费资源，也会使布局布线无法收敛。
+    & $Yosys -p "read_verilog `"$ClockEnableFile`" `"$SynchronizerFile`" `"$ProgramMemoryFile`" `"$CoreFile`" `"$TopFile`"; synth_gowin -nowidelut -top top -json `"$SynthJson`""
     if ($LASTEXITCODE -ne 0) {
         throw "Yosys failed (exit code $LASTEXITCODE)."
     }

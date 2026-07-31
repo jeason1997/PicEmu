@@ -131,6 +131,50 @@ $env:OSS_CAD_SUITE = "D:\tools\oss-cad-suite"
 .\fpga\scripts\simulate.ps1
 ```
 
+该命令不仅运行手写指令的 CPU 冒烟测试，还会执行真实固件端到端仿真。默认读取
+`examples/blink/build/firmware.hex`，使用与位流构建相同的转换器生成程序存储器
+镜像，然后让 RTL CPU 执行约 200 万个 PIC 指令周期。测试会自动确认 GP0 已配置
+为输出，并以约 100 万个指令周期（4 MHz 时约 1 秒）为间隔交替翻转。
+
+默认生成以下 GTKWave 波形：
+
+```text
+fpga/build/pic10f200/firmware_sim.vcd
+```
+
+快速测试虽然没有逐拍仿真 27 MHz 板载时钟，但 VCD 时间轴仍按每个 PIC 指令
+周期 1 微秒生成，因此 `blink` 的相邻 GP0 翻转在 GTKWave 中约相隔 1 秒。
+
+Windows PowerShell 中可通过 WSL 打开：
+
+```powershell
+$VcdWindows = (Resolve-Path -LiteralPath `
+  "fpga\build\pic10f200\firmware_sim.vcd").Path.Replace("\", "/")
+$VcdWsl = (wsl.exe wslpath -a $VcdWindows).Trim()
+wsl.exe gtkwave $VcdWsl
+```
+
+这里先把 Windows 路径中的反斜杠改成正斜杠，避免 WSL shell 把反斜杠当作
+转义字符并生成类似 `fpgabuildpic10f200` 的错误路径。
+
+自动回归时如果只需要 PASS/FAIL、不需要波形，可显著加快运行并减少磁盘占用：
+
+```powershell
+.\fpga\scripts\simulate.ps1 -NoWave
+```
+
+也可以测试另一个已经由 XC8 编译好的固件；当前自动判定要求该固件的 GP0
+行为与 `blink` 相同：
+
+```powershell
+.\fpga\scripts\simulate.ps1 `
+  -Firmware "examples\blink\build\firmware.hex"
+```
+
+端到端测试为加速而压缩了两次 PIC 指令使能之间的 FPGA 时钟数，但仍使用同步
+程序存储器。它验证 HEX 转换、取指、受支持指令和 GPIO 行为，不替代 27 MHz
+板级时钟、布局布线、引脚电气特性和实板测试。
+
 构建默认 `blink`：
 
 ```powershell
