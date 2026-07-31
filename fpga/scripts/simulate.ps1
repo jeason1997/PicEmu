@@ -31,7 +31,6 @@ $ProgramMemoryFile = Join-Path $FpgaRoot "rtl\memory\pic10f200_program_memory.v"
 $CoreTestbench = Join-Path $FpgaRoot "tb\pic10f200_core_tb.v"
 $MemoryTestbench = Join-Path $FpgaRoot "tb\pic10f200_program_memory_tb.v"
 $FirmwareTestbench = Join-Path $FpgaRoot "tb\pic10f200_firmware_tb.v"
-$GowinRamModel = Join-Path $FpgaRoot "tb\gowin_ram16sdp4_model.v"
 $CoreSimulation = Join-Path $BuildDir "pic10f200_core_tb.vvp"
 $MemorySimulation = Join-Path $BuildDir "pic10f200_program_memory_tb.vvp"
 $FirmwareSimulation = Join-Path $BuildDir "pic10f200_firmware_tb.vvp"
@@ -50,8 +49,7 @@ if (-not [System.IO.Path]::IsPathRooted($Firmware)) {
 
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
-& $Iverilog -g2012 -s pic10f200_core_tb -o $CoreSimulation `
-    $GowinRamModel $CoreFile $CoreTestbench
+& $Iverilog -g2012 -s pic10f200_core_tb -o $CoreSimulation $CoreFile $CoreTestbench
 if ($LASTEXITCODE -ne 0) { throw "Icarus Verilog compile failed (exit code $LASTEXITCODE)." }
 
 & $Vvp $CoreSimulation
@@ -76,7 +74,7 @@ Write-Host "Converting real PIC firmware for RTL simulation: $Firmware"
 if ($LASTEXITCODE -ne 0) { throw "HEX conversion failed (exit code $LASTEXITCODE)." }
 
 & $Iverilog -g2012 -s pic10f200_firmware_tb `
-    -o $FirmwareSimulation $GowinRamModel $CoreFile $ProgramMemoryFile $FirmwareTestbench
+    -o $FirmwareSimulation $CoreFile $ProgramMemoryFile $FirmwareTestbench
 if ($LASTEXITCODE -ne 0) { throw "Firmware test compile failed (exit code $LASTEXITCODE)." }
 
 Push-Location $BuildDir

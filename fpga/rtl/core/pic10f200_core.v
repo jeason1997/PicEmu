@@ -7,6 +7,8 @@
  */
 module pic10f200_core #(
     parameter WATCHDOG_ENABLED=1'b0,
+    parameter TIMER0_ENABLED=1'b1,
+    parameter SLEEP_ENABLED=1'b1,
     parameter integer WDT_BASE_CYCLES=18000
 ) (
     input wire clk, reset_n, cpu_ce,
@@ -18,6 +20,7 @@ module pic10f200_core #(
 );
     localparam C=0, DC=1, Z=2, PD=3, TO=4;
     reg [7:0] w, pc, status, fsr, osccal, tmr0, option_reg;
+    reg [7:0] gpr [0:15];
     reg [3:0] gpio_latch, tris_gpio, previous_gpio;
     reg [7:0] stack0, stack1;
     reg stack_pointer, bubble, sleeping, previous_t0cki;
@@ -44,22 +47,6 @@ module pic10f200_core #(
     wire [8:0] add_value={1'b0,file_value}+{1'b0,w};
     wire gpr_write_enable=cpu_ce && !sleeping && !bubble && file_we &&
                           write_address>=16;
-    wire [7:0] gpr_data;
-
-    /*
-     * GW1NZ-1 的 16×4 双口分布式 SRAM 正好组成 16×8 GPR。显式实例化可避免
-     * 综合器把异步读 RAM 展开为 128 个触发器和多级宽 MUX。
-     */
-    \$__GOWIN_LUTRAM_ #(.BITS_USED(4'b1111)) gpr_low (
-        .PORT_R_RD_DATA(gpr_data[3:0]), .PORT_W_WR_DATA(write_value[3:0]),
-        .PORT_W_ADDR(write_address[3:0]), .PORT_R_ADDR(read_address[3:0]),
-        .PORT_W_WR_EN(gpr_write_enable), .PORT_W_CLK(clk)
-    );
-    \$__GOWIN_LUTRAM_ #(.BITS_USED(4'b1111)) gpr_high (
-        .PORT_R_RD_DATA(gpr_data[7:4]), .PORT_W_WR_DATA(write_value[7:4]),
-        .PORT_W_ADDR(write_address[3:0]), .PORT_R_ADDR(read_address[3:0]),
-        .PORT_W_WR_EN(gpr_write_enable), .PORT_W_CLK(clk)
-    );
 
     assign program_address=pc;
     assign gpio_output=gpio_latch;
@@ -71,13 +58,13 @@ module pic10f200_core #(
     always @* begin
         case(read_address)
             0: file_value=0;
-            1: file_value=tmr0;
+            1: file_value=TIMER0_ENABLED ? tmr0 : 0;
             2: file_value=pc;
             3: file_value=status;
             4: file_value=fsr;
             5: file_value=osccal;
             6: file_value={4'h0,pins};
-            default: file_value=(read_address>=16)?gpr_data:0;
+            default: file_value=(read_address>=16)?gpr[read_address[3:0]]:0;
         endcase
     end
 
@@ -131,7 +118,7 @@ module pic10f200_core #(
 
     task timer_tick;
         begin
-            if(!option_reg[5]) begin
+            if(TIMER0_ENABLED && !option_reg[5]) begin
                 if(timer0_inhibit!=0) timer0_inhibit<=timer0_inhibit-1'b1;
                 else if(option_reg[3]) tmr0<=tmr0+1'b1;
                 else if(prescaler==((1<<(option_reg[2:0]+1))-1)) begin
@@ -140,6 +127,10 @@ module pic10f200_core #(
             end
         end
     endtask
+
+    always @(posedge clk)
+        if(gpr_write_enable)
+            gpr[write_address[3:0]]<=write_value;
 
     always @(posedge clk or negedge reset_n) begin
         if(!reset_n) begin
@@ -152,14 +143,14 @@ module pic10f200_core #(
             previous_t0cki<=pins[2]; previous_gpio<=pins;
 
             /* 外部 Timer0：T0SE=0 上升沿，T0SE=1 下降沿。 */
-            if(option_reg[5] && previous_t0cki!=pins[2] &&
+            if(TIMER0_ENABLED && option_reg[5] && previous_t0cki!=pins[2] &&
                pins[2]!=option_reg[4]) begin
                 if(option_reg[3]) tmr0<=tmr0+1'b1;
                 else if(prescaler==((1<<(option_reg[2:0]+1))-1)) begin
                     prescaler<=0; tmr0<=tmr0+1'b1;
                 end else prescaler<=prescaler+1'b1;
             end
-            if(sleeping && !option_reg[7] &&
+            if(SLEEP_ENABLED && sleeping && !option_reg[7] &&
                |((previous_gpio^pins)&4'b1011)) sleeping<=0;
 
             if(WATCHDOG_ENABLED) begin
@@ -198,7 +189,7 @@ module pic10f200_core #(
 
                     if(program_instruction==12'h002) begin
                         option_reg<=w; prescaler<=0; watchdog<=0;             /* OPTION */
-                    end else if(program_instruction==12'h003) begin
+                    end else if(SLEEP_ENABLED && program_instruction==12'h003) begin
                         sleeping<=1; watchdog<=0; status[PD]<=0; status[TO]<=1;
                     end else if(program_instruction==12'h004) begin
                         watchdog<=0; prescaler<=0; status[PD]<=1; status[TO]<=1;

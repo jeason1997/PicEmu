@@ -19,7 +19,7 @@ XC8 HEX和示例来验证行为，而不是共享执行代码。软件模拟器�
 |---|---|---|
 | PIC10F200 CPU 核心 | GW1NZ-1 内部配置 Flash 的位流 | FPGA 逻辑单元和寄存器 |
 | PIC 固件/ROM | 同一个内部配置 Flash 位流 | 1 个片上 BSRAM（SPX9） |
-| PIC 数据寄存器 | 不持久化 | FPGA 寄存器 |
+| PIC 数据寄存器 | 不持久化 | 2 个片上分布式 SRAM（RAM16SDP4） |
 
 GW1NZ-1 的内部配置 Flash 不是用户逻辑能够按地址读取的普通存储器，因此
 不存在 PIC CPU 自己执行“从内部 Flash 复制 ROM”的软件循环。实际启动过程是：
@@ -37,38 +37,38 @@ PIC CPU 从 BSRAM 地址 0 开始取指
 ```
 
 这就是 FPGA 中“固件随位流保存、运行时位于 RAM”的标准实现。程序存储器
-使用同步读模板并以 `ram_style = "block"` 声明；构建时还启用
-`synth_gowin -nolutram`，防止退化成 LUTRAM。验证使用的资源报告为：
+使用同步读模板并以 `ram_style = "block"` 声明。16 字节 GPR 则有意使用
+分布式 SRAM；不能给 `synth_gowin` 传入 `-nolutram`，否则 GPR 会膨胀为
+128 个触发器和宽多路器，导致 Tang Nano 1K 无法布局。验证资源报告为：
 
 ```text
-SPX9:  1
-BSRAM: 1 / 4 (25%)
+LUT4:      326 / 1152 (28%)
+RAM16SDP4:   2 / 72   (2%)
+BSRAM:       1 / 4   (25%)
+最高频率: 62.76 MHz（27 MHz 目标通过）
 ```
 
 如果工具链不能放置 BSRAM，构建会直接失败，不会静默改用 LUT ROM。
 
 ## 当前实现范围
 
-当前阶段已在 Tang Nano 1K 实板验证 `blink`、`led_chaser` 和 `button`
-等 XC8 固件：
+当前阶段已把 `blink` 持久烧录到 Tang Nano 1K 配置 Flash，并通过下载器
+Flash/SRAM CRC 校验。核心实现范围为：
 
 - 12 位指令取指和译码；
 - 8 位 W、PC 和 STATUS；
 - GPIO 输出锁存器和 TRIS 方向控制；
 - GP3 固定输入；
-- 三个 GPR（`0x10`～`0x12`）；
-- NOP、TRIS、MOVWF、CLRF、XORWF、MOVF、DECFSZ、BTFSC、GOTO、MOVLW；
+- 完整 16 字节 GPR（`0x10`～`0x1F`）和 INDF/FSR 间接寻址；
+- PIC10F200 的 33 条 Baseline 指令；
+- 两级循环硬件栈、Timer0、共享预分频器、SLEEP 和外部 T0CKI；
 - 跳转和成功跳过指令的第二个指令周期；
 - 27 MHz FPGA 时钟产生 1 MHz PIC 指令周期；
-- 64 个 12 位程序字的 BSRAM 程序窗口。
+- 256 个 12 位程序字的 BSRAM 程序空间。
 
-尚未实现全部 16 字节 RAM、完整指令集、两级栈、Timer0、WDT、SLEEP 和
-外部 T0CKI。HEX 转换器会拒绝超过 64 字或包含未实现指令的固件，避免静默
-执行错误。
-
-`breathing_led` 当前用于 SDL 模拟器演示软件 PWM。它需要的固件容量和
-指令尚超出这一版 FPGA 核心的范围，因此暂未列为 FPGA 可运行示例；RTL
-中没有为呼吸灯加入专用状态机或其他特殊处理。
+WDT 逻辑可通过核心参数 `WATCHDOG_ENABLED` 综合启用；当前板级顶层默认关闭，
+与仓库全部 PIC10F200 示例的 `WDTE = OFF` 配置一致。构建脚本尚未自动从 HEX
+配置字设置这个参数，因此需要 WDT 的自定义固件必须同步修改板级实例参数。
 
 ## 引脚映射
 
