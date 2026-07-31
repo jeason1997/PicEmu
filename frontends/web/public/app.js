@@ -1,3 +1,9 @@
+import {
+  deviceDefinition, hasDevice, isMcuType, renderPalette
+} from "./devices/registry.js";
+import { capacities as W25_CAPACITIES } from "./devices/w25q.js";
+import { lineHtml as lcdLineHtml } from "./devices/lcd1602.js";
+
 const $ = selector => document.querySelector(selector);
 const stage = $("#stage");
 const stageSizer = $("#stageSizer");
@@ -14,57 +20,6 @@ const ORIGIN_X = STAGE_WIDTH / 2;
 const ORIGIN_Y = STAGE_HEIGHT / 2;
 const GRID_SIZE = 20;
 const SNAP_SIZE = GRID_SIZE / 2;
-const W25_CAPACITIES = [
-  [131072, "W25Q10 · 128 KiB"],
-  [262144, "W25Q20 · 256 KiB"],
-  [524288, "W25Q40 · 512 KiB"],
-  [1048576, "W25Q80 · 1 MiB"],
-  [2097152, "W25Q16 · 2 MiB"],
-  [4194304, "W25Q32 · 4 MiB"],
-  [8388608, "W25Q64 · 8 MiB"],
-  [16777216, "W25Q128 · 16 MiB"]
-];
-const MCU_TYPES = new Set(["pic10f200", "pic10f202"]);
-const LCD_GLYPHS = {
-  " ": [0,0,0,0,0,0,0], "?": [14,17,1,2,4,0,4],
-  "0":[14,17,19,21,25,17,14], "1":[4,12,4,4,4,4,14],
-  "2":[14,17,1,2,4,8,31], "3":[30,1,1,14,1,1,30],
-  "4":[2,6,10,18,31,2,2], "5":[31,16,30,1,1,17,14],
-  "6":[6,8,16,30,17,17,14], "7":[31,1,2,4,8,8,8],
-  "8":[14,17,17,14,17,17,14], "9":[14,17,17,15,1,2,12],
-  "A":[14,17,17,31,17,17,17], "B":[30,17,17,30,17,17,30],
-  "C":[14,17,16,16,16,17,14], "D":[30,17,17,17,17,17,30],
-  "E":[31,16,16,30,16,16,31], "F":[31,16,16,30,16,16,16],
-  "G":[14,17,16,23,17,17,15], "H":[17,17,17,31,17,17,17],
-  "I":[14,4,4,4,4,4,14], "J":[7,2,2,2,2,18,12],
-  "K":[17,18,20,24,20,18,17], "L":[16,16,16,16,16,16,31],
-  "M":[17,27,21,21,17,17,17], "N":[17,25,21,19,17,17,17],
-  "O":[14,17,17,17,17,17,14], "P":[30,17,17,30,16,16,16],
-  "Q":[14,17,17,17,21,18,13], "R":[30,17,17,30,20,18,17],
-  "S":[15,16,16,14,1,1,30], "T":[31,4,4,4,4,4,4],
-  "U":[17,17,17,17,17,17,14], "V":[17,17,17,17,17,10,4],
-  "W":[17,17,17,21,21,21,10], "X":[17,17,10,4,10,17,17],
-  "Y":[17,17,10,4,4,4,4], "Z":[31,1,2,4,8,16,31],
-  "-":[0,0,0,31,0,0,0], "_":[0,0,0,0,0,0,31],
-  ".":[0,0,0,0,0,12,12], ":":[0,12,12,0,12,12,0]
-};
-
-function lcdCellHtml(character) {
-  const glyph = LCD_GLYPHS[character] ||
-    LCD_GLYPHS[character.toUpperCase()] || LCD_GLYPHS["?"];
-  const dots = [];
-  for (let row = 0; row < 8; row++) {
-    const bits = glyph[row] || 0;
-    for (let column = 0; column < 5; column++) {
-      dots.push(`<i class="${bits & (1 << (4 - column)) ? "on" : ""}"></i>`);
-    }
-  }
-  return `<span class="lcd-cell">${dots.join("")}</span>`;
-}
-
-function lcdLineHtml(text = "") {
-  return text.padEnd(16).slice(0, 16).split("").map(lcdCellHtml).join("");
-}
 
 const model = {
   diagram: { version: 1, clockHz: 4000000, firmware: "", parts: [], connections: [] },
@@ -96,52 +51,8 @@ const model = {
   w25LastRefresh: 0
 };
 
-const pinDefs = {
-  pic10f200: [
-    { name:"GP0", label:"1 GP0/ICSPDAT", side:"left", top:38, gpio:0 },
-    { name:"VSS", label:"2 VSS", side:"left", top:98 },
-    { name:"GP1", label:"3 GP1/ICSPCLK", side:"left", top:158, gpio:1 },
-    { name:"GP3", label:"6 GP3/MCLR/VPP", side:"right", top:38, gpio:3 },
-    { name:"VDD", label:"5 VDD", side:"right", top:98 },
-    { name:"GP2", label:"4 GP2/T0CKI/FOSC4", side:"right", top:158, gpio:2 }
-  ],
-  w25q: [
-    { name:"/CS", label:"1 /CS", side:"left", top:12 },
-    { name:"DO", label:"2 DO (MISO)", side:"left", top:42 },
-    { name:"CLK", label:"6 CLK", side:"left", top:72 },
-    { name:"DI", label:"5 DI (MOSI)", side:"left", top:102 }
-  ],
-  "i2c-lcd1602": [
-    { name:"SDA", label:"SDA", side:"left", top:34 },
-    { name:"SCL", label:"SCL", side:"left", top:84 }
-  ],
-  "seven-segment": [
-    { name:"a", label:"a", side:"left", top:9 },
-    { name:"b", label:"b", side:"left", top:31 },
-    { name:"c", label:"c", side:"left", top:53 },
-    { name:"d", label:"d", side:"left", top:75 },
-    { name:"e", label:"e", side:"left", top:97 },
-    { name:"f", label:"f", side:"left", top:119 },
-    { name:"g", label:"g", side:"left", top:141 },
-    { name:"dp", label:"dp", side:"left", top:163 }
-  ],
-  hc595: [
-    { name:"SER", label:"SER", side:"left", top:24 },
-    { name:"SRCLK", label:"SRCLK", side:"left", top:74 },
-    { name:"RCLK", label:"RCLK", side:"left", top:124 },
-    ...Array.from({length:8}, (_, index) => ({
-      name:`Q${index}`, label:`Q${index}`, side:"right", top:8 + index * 22
-    }))
-  ],
-  led: [{ name:"A", gpio:null }],
-  pushbutton: [{ name:"1", gpio:null }],
-  buzzer: [{ name:"1", gpio:null }]
-};
-pinDefs.pic10f202 = pinDefs.pic10f200;
-
-function isMcuType(type) { return MCU_TYPES.has(type); }
 function mcuDevice(part) {
-  return part.type === "pic10f202" ? "PIC10F202" : "PIC10F200";
+  return deviceDefinition(part.type).deviceName;
 }
 
 async function api(url, options = {}) {
@@ -168,35 +79,16 @@ function hex(value, digits = 2) {
   return "0x" + Number(value || 0).toString(16).toUpperCase().padStart(digits, "0");
 }
 
-function partClass(type) {
-  return isMcuType(type) ? "mcu"
-    : type === "w25q" ? "flash-chip"
-    : type === "i2c-lcd1602" ? "lcd1602-part"
-    : type === "seven-segment" ? "seven-segment-part"
-    : type === "hc595" ? "hc595-part"
-    : type === "led" ? "led-part"
-    : type === "pushbutton" ? "button-part" : "buzzer-part";
-}
-
 function pinKey(partId, pin) { return `${partId}:${pin}`; }
 function snap(value) { return Math.round(value / SNAP_SIZE) * SNAP_SIZE; }
 function stageX(worldX) { return worldX + ORIGIN_X; }
 function stageY(worldY) { return worldY + ORIGIN_Y; }
 function partSize(type) {
-  if (isMcuType(type)) return { width: 300, height: 240 };
-  if (type === "w25q") return { width: 180, height: 150 };
-  if (type === "i2c-lcd1602") return { width: 430, height: 154 };
-  if (type === "seven-segment") return { width: 150, height: 190 };
-  if (type === "hc595") return { width: 170, height: 205 };
-  if (type === "led") return { width: 48, height: 48 };
-  if (type === "pushbutton") return { width: 110, height: 60 };
-  return { width: 60, height: 60 };
+  return deviceDefinition(type).size;
 }
 function partTopLeft(part) {
   const size = partSize(part.type);
-  if (isMcuType(part.type) || part.type === "w25q" ||
-      part.type === "i2c-lcd1602" || part.type === "seven-segment" ||
-      part.type === "hc595") {
+  if (deviceDefinition(part.type).positionMode === "top-left") {
     return { left: part.left, top: part.top };
   }
   return {
@@ -275,7 +167,8 @@ function moveHistory(offset) {
 }
 
 function devicePortSide(part) {
-  const pinName = part.type === "led" ? "A" : "1";
+  const definition = deviceDefinition(part.type);
+  const pinName = definition.pins.find(pin => pin.dynamic)?.name;
   const endpoint = `${part.id}:${pinName}`;
   const connection = model.diagram.connections.find(item =>
     item[0] === endpoint || item[1] === endpoint);
@@ -292,7 +185,7 @@ function devicePortSide(part) {
       return otherCenter < ownCenter ? "left" : "right";
     }
   }
-  return part.type === "led" ? "right" : "left";
+  return definition.defaultPortSide;
 }
 
 function devicePortYOffset(part) {
@@ -300,115 +193,26 @@ function devicePortYOffset(part) {
 }
 
 function renderPart(part) {
+  const definition = deviceDefinition(part.type);
   const el = document.createElement("div");
-  el.className = `part ${partClass(part.type)}`;
+  el.className = `part ${definition.className}`;
   el.dataset.id = part.id;
   const position = partTopLeft(part);
   el.style.left = `${stageX(position.left)}px`;
   el.style.top = `${stageY(position.top)}px`;
-  if (part.type === "led") {
-    el.classList.add(part.attrs?.color || "red");
-  }
-
-  if (isMcuType(part.type)) {
-    el.innerHTML = `<div class="part-body">
-      <i class="pin-one"></i><div class="mcu-title">${mcuDevice(part)}</div></div>`;
-    for (const pin of pinDefs[part.type]) {
-      const p = document.createElement("div");
-      p.className = `pin ${pin.side}`;
-      p.style.top = `${pin.top}px`;
-      p.textContent = pin.label;
-      p.dataset.pin = pin.name;
-      p.addEventListener("pointerdown", event => {
-        event.stopPropagation(); selectPin(part, pin.name, p);
-      });
-      el.querySelector(".part-body").appendChild(p);
-    }
-  } else if (part.type === "w25q") {
-    el.innerHTML = `<div class="part-body">
-      <i class="pin-one"></i><div class="flash-title">W25Q</div>
-      <div class="flash-capacity-label"></div></div>
-      <div class="part-label">${part.id}</div>`;
-    for (const pinDef of pinDefs.w25q) {
-      const pin = document.createElement("div");
-      pin.className = "pin left";
-      pin.style.top = `${pinDef.top}px`;
-      pin.textContent = pinDef.label;
-      pin.dataset.pin = pinDef.name;
-      pin.addEventListener("pointerdown", event => {
-        event.stopPropagation();
-        selectPin(part, pinDef.name, pin);
-      });
-      el.querySelector(".part-body").appendChild(pin);
-    }
-    const capacity = Number(part.attrs?.capacity || 2097152);
-    const capacityName = W25_CAPACITIES.find(item => item[0] === capacity);
-    el.querySelector(".flash-capacity-label").textContent =
-      capacityName ? capacityName[1].split(" · ")[0] : `${capacity} B`;
-  } else if (part.type === "i2c-lcd1602") {
-    el.innerHTML = `<div class="part-body">
-      <div class="lcd-bezel"><div class="lcd-line" data-text="">${
-        lcdLineHtml()}</div><div class="lcd-line" data-text="">${
-        lcdLineHtml()}</div></div></div>
-      <div class="part-label">${part.id} · 0x${Number(
-        part.attrs?.address ?? 0x27).toString(16).toUpperCase()}</div>`;
-    for (const pinDef of pinDefs["i2c-lcd1602"]) {
-      const pin = document.createElement("div");
-      pin.className = "pin left";
-      pin.style.top = `${pinDef.top}px`;
-      pin.textContent = pinDef.label;
-      pin.dataset.pin = pinDef.name;
-      pin.addEventListener("pointerdown", event => {
-        event.stopPropagation();
-        selectPin(part, pinDef.name, pin);
-      });
-      el.querySelector(".part-body").appendChild(pin);
-    }
-  } else if (part.type === "seven-segment") {
-    el.innerHTML = `<div class="part-body">
-      <div class="seven-display">
-        <i data-segment="a"></i><i data-segment="b"></i>
-        <i data-segment="c"></i><i data-segment="d"></i>
-        <i data-segment="e"></i><i data-segment="f"></i>
-        <i data-segment="g"></i><i data-segment="dp"></i>
-      </div></div><div class="part-label">${part.id}</div>`;
-    for (const pinDef of pinDefs["seven-segment"]) {
-      const pin = document.createElement("div");
-      pin.className = "pin left";
-      pin.style.top = `${pinDef.top}px`;
-      pin.textContent = pinDef.label;
-      pin.dataset.pin = pinDef.name;
-      pin.addEventListener("pointerdown", event => {
-        event.stopPropagation();
-        selectPin(part, pinDef.name, pin);
-      });
-      el.querySelector(".part-body").appendChild(pin);
-    }
-  } else if (part.type === "hc595") {
-    el.innerHTML = `<div class="part-body"><i class="pin-one"></i>
-      <div class="hc595-title">74HC595</div></div>
-      <div class="part-label">${part.id}</div>`;
-    for (const pinDef of pinDefs.hc595) {
-      const pin = document.createElement("div");
-      pin.className = `pin ${pinDef.side}`;
-      pin.style.top = `${pinDef.top}px`;
-      pin.textContent = pinDef.label;
-      pin.dataset.pin = pinDef.name;
-      pin.addEventListener("pointerdown", event => {
-        event.stopPropagation();
-        selectPin(part, pinDef.name, pin);
-      });
-      el.querySelector(".part-body").appendChild(pin);
-    }
-  } else if (part.type === "led") {
-    el.innerHTML = `<div class="part-body"><i class="device-pin" data-pin="A"></i></div>
-      <div class="part-label">${part.id}</div>`;
-  } else if (part.type === "pushbutton") {
-    el.innerHTML = `<div class="part-body"><span class="button-cap"></span>
-      <i class="device-pin" data-pin="1"></i></div><div class="part-label">${part.id}</div>`;
-  } else {
-    el.innerHTML = `<div class="part-body">◉<i class="device-pin" data-pin="1"></i></div>
-      <div class="part-label">${part.id}</div>`;
+  el.innerHTML = definition.render(part);
+  definition.decorate?.(el, part);
+  for (const pinDefinition of definition.pins.filter(pin => !pin.dynamic)) {
+    const pin = document.createElement("div");
+    pin.className = `pin ${pinDefinition.side}`;
+    pin.style.top = `${pinDefinition.top}px`;
+    pin.textContent = pinDefinition.label;
+    pin.dataset.pin = pinDefinition.name;
+    pin.addEventListener("pointerdown", event => {
+      event.stopPropagation();
+      selectPin(part, pinDefinition.name, pin);
+    });
+    el.querySelector(".part-body").appendChild(pin);
   }
 
   el.querySelectorAll(".device-pin").forEach(pin => {
@@ -434,27 +238,17 @@ function pinPoint(endpoint) {
   const [id, pinName] = endpoint.split(":");
   const part = model.diagram.parts.find(item => item.id === id);
   if (!part) return null;
-  if (isMcuType(part.type)) {
-    const pin = pinDefs[part.type].find(item => item.name === pinName);
+  const definition = deviceDefinition(part.type);
+  if (definition.positionMode === "top-left") {
+    const pin = definition.pins.find(item => item.name === pinName);
     if (!pin) return null;
+    const width = definition.size.width;
     return {
-      x: stageX(part.left) + (pin.side === "left" ? -6 : 306),
+      x: stageX(part.left) + (pin.side === "left" ? -6 : width + 6),
       y: stageY(part.top) + pin.top + 12,
       side: pin.side,
       top: stageY(part.top),
-      bottom: stageY(part.top) + partSize(part.type).height
-    };
-  }
-  if (part.type === "w25q" || part.type === "i2c-lcd1602" ||
-      part.type === "seven-segment" || part.type === "hc595") {
-    const pin = pinDefs[part.type].find(item => item.name === pinName);
-    if (!pin) return null;
-    return {
-      x: stageX(part.left) - 6,
-      y: stageY(part.top) + pin.top + 12,
-      side: "left",
-      top: stageY(part.top),
-      bottom: stageY(part.top) + partSize(part.type).height
+      bottom: stageY(part.top) + definition.size.height
     };
   }
   const size = partSize(part.type);
@@ -678,16 +472,13 @@ function updateSelection() {
 }
 
 function uniqueId(type) {
-  const base = isMcuType(type) ? "mcu"
-    : type === "w25q" ? "flash"
-    : type === "i2c-lcd1602" ? "lcd"
-    : type === "hc595" ? "shift"
-    : type === "pushbutton" ? "button" : type;
+  const base = deviceDefinition(type).idPrefix || type;
   let index = 1, value = base;
   while (model.diagram.parts.some(part => part.id === value)) value = base + index++;
   return value;
 }
 
+renderPalette($("#devicePalette"));
 document.querySelectorAll(".palette-item").forEach(item => {
   item.addEventListener("dragstart", event =>
     event.dataTransfer.setData("application/x-picemu-part", item.dataset.type));
@@ -696,7 +487,8 @@ stageViewport.addEventListener("dragover", event => event.preventDefault());
 stageViewport.addEventListener("drop", event => {
   event.preventDefault();
   const type = event.dataTransfer.getData("application/x-picemu-part");
-  if (!pinDefs[type]) return;
+  if (!hasDevice(type)) return;
+  const definition = deviceDefinition(type);
   const rect = stageViewport.getBoundingClientRect();
   const part = {
     id: uniqueId(type), type,
@@ -707,13 +499,7 @@ stageViewport.addEventListener("drop", event => {
       (stageViewport.scrollTop + event.clientY - rect.top) / model.zoom -
       ORIGIN_Y)
   };
-  if (type === "led") part.attrs = { color: "red" };
-  if (type === "pushbutton") part.attrs = { activeLow: true };
-  if (type === "w25q") part.attrs = { capacity: 2097152, data: "" };
-  if (type === "i2c-lcd1602") part.attrs = { address: 0x27 };
-  if (type === "seven-segment") {
-    part.attrs = { activeHigh: true, color: "red" };
-  }
+  if (definition.defaultAttrs) part.attrs = { ...definition.defaultAttrs };
   model.diagram.parts.push(part);
   if (isMcuType(type)) selectActiveMcu(part.id);
   model.selectedIds.clear();

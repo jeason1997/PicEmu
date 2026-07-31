@@ -25,7 +25,9 @@ PicEmu/
 │   ├── parts/             各器件独立可视模块
 │   └── common/            位图文字等公共绘图代码
 ├── frontends/web/
-│   ├── public/            浏览器界面、画布和调试面板
+│   ├── public/
+│   │   ├── devices/       各器件的元数据、引脚和可视模板
+│   │   └── app.js         通用画布、连线、调试和状态调度
 │   ├── backend/           面向Web的C调试协议进程
 │   ├── scripts/           Linux主启动脚本和PowerShell包装
 │   └── server.mjs         静态文件、保存接口和多MCU进程管理

@@ -135,7 +135,7 @@ Web 直接读取 `examples/*/diagram.json`，主要字段保持一致：
 ## 架构
 
 ```text
-浏览器编辑器
+器件模块 -> Web 器件注册表 -> 浏览器编辑器
     │ HTTP / JSON
 本地 Node 服务
     │ stdin / stdout
@@ -143,6 +143,10 @@ picemu-web-core（C）
     │
 PIC10 CPU、HEX 加载器、器件描述
 ```
+
+`frontends/web/public/devices/` 中每种器件拥有独立模块，集中声明器件库条目、
+画布尺寸、坐标方式、引脚和 DOM 模板。`app.js` 只通过统一注册表访问这些信息；
+新增 Web 器件时不应再向页面 HTML 或通用渲染函数添加类型判断。
 
 Node 服务只监听 `127.0.0.1`。用户上传的 HEX 按 MCU ID 暂存在
 `build/web/uploads/<mcu-id>.hex`，执行 `make clean` 会将其删除。

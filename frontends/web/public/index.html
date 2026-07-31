@@ -42,54 +42,7 @@
     <aside class="palette">
       <div class="panel-title">器件库</div>
       <div class="search">⌕ <input id="partSearch" placeholder="搜索器件"></div>
-      <div class="palette-group">
-        <h3>微控制器</h3>
-        <div class="palette-item" draggable="true" data-type="pic10f200">
-          <span class="part-icon chip-icon"></span>
-          <div><b>PIC10F200</b><small>6-Pin MCU</small></div>
-        </div>
-        <div class="palette-item" draggable="true" data-type="pic10f202">
-          <span class="part-icon chip-icon"></span>
-          <div><b>PIC10F202</b><small>512-Word MCU</small></div>
-        </div>
-      </div>
-      <div class="palette-group">
-        <h3>输出器件</h3>
-        <div class="palette-item" draggable="true" data-type="led">
-          <span class="part-icon led-icon"></span>
-          <div><b>LED</b><small>红 / 绿 / 蓝 / 黄</small></div>
-        </div>
-        <div class="palette-item" draggable="true" data-type="buzzer">
-          <span class="part-icon buzzer-icon">◉</span>
-          <div><b>蜂鸣器</b><small>无源蜂鸣器</small></div>
-        </div>
-        <div class="palette-item" draggable="true" data-type="i2c-lcd1602">
-          <span class="part-icon lcd-icon">16×2</span>
-          <div><b>I²C LCD1602</b><small>PCF8574 · HD44780</small></div>
-        </div>
-        <div class="palette-item" draggable="true" data-type="seven-segment">
-          <span class="part-icon seven-segment-icon">8.</span>
-          <div><b>七段数码管</b><small>a～g、dp 独立输入</small></div>
-        </div>
-      </div>
-      <div class="palette-group">
-        <h3>输入器件</h3>
-        <div class="palette-item" draggable="true" data-type="pushbutton">
-          <span class="part-icon button-icon">↧</span>
-          <div><b>按键</b><small>按住产生低电平</small></div>
-        </div>
-      </div>
-      <div class="palette-group">
-        <h3>存储器</h3>
-        <div class="palette-item" draggable="true" data-type="hc595">
-          <span class="part-icon hc595-icon">595</span>
-          <div><b>74HC595</b><small>8位串入并出</small></div>
-        </div>
-        <div class="palette-item" draggable="true" data-type="w25q">
-          <span class="part-icon flash-icon">▦</span>
-          <div><b>W25Q Flash</b><small>SPI NOR</small></div>
-        </div>
-      </div>
+      <div id="devicePalette"></div>
       <div class="palette-help">
         拖到画布添加器件。点击一个引脚，再点击另一个引脚完成连线。
       </div>
