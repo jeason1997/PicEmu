@@ -30,6 +30,8 @@ SIM_SOURCES := \
 	src/sim/devices/led.c \
 	src/sim/devices/button.c \
 	src/sim/devices/buzzer.c \
+	src/sim/devices/hc595.c \
+	src/sim/devices/seven_segment.c \
 	src/sim/devices/i2c_lcd1602.c \
 	src/sim/devices/w25q.c \
 	src/sim/board.c
@@ -73,7 +75,9 @@ SDL_PART_TEST_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
 	frontends/sdl/circuit/sdl_circuit.o $(SDL_PART_SOURCES:.c=.o))
 WEB_CORE_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
 	frontends/web/backend/main.o $(CORE_SOURCES:.c=.o) \
-	src/sim/devices/w25q.o src/sim/devices/i2c_lcd1602.o)
+	src/sim/device.o src/sim/devices/w25q.o \
+	src/sim/devices/i2c_lcd1602.o src/sim/devices/hc595.o \
+	src/sim/devices/seven_segment.o)
 
 ALL_OBJECTS := $(sort $(CLI_OBJECTS) $(SDL_OBJECTS) \
 	$(UNIT_TEST_OBJECTS) $(WEB_CORE_OBJECTS))

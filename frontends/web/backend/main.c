@@ -2,6 +2,8 @@
 #include "picemu/core/disassembler.h"
 #include "picemu/firmware/hex_loader.h"
 #include "picemu/sim/devices/i2c_lcd1602.h"
+#include "picemu/sim/devices/hc595.h"
+#include "picemu/sim/devices/seven_segment.h"
 #include "picemu/sim/devices/w25q.h"
 
 #include <inttypes.h>
@@ -36,6 +38,13 @@ static SimI2cLcd1602 lcd1602;
 static bool lcd1602_attached;
 static unsigned lcd1602_sda_pin;
 static unsigned lcd1602_scl_pin;
+static SimHc595 hc595;
+static bool hc595_attached;
+static unsigned hc595_data_pin;
+static unsigned hc595_clock_pin;
+static unsigned hc595_latch_pin;
+static SimSevenSegment seven_segment;
+static bool seven_segment_attached;
 
 static char *next_field(char **cursor);
 
@@ -104,6 +113,14 @@ static void print_state(bool include_flash)
         sim_i2c_lcd1602_get_line(&lcd1602, 1, lcd_line);
         print_json_string(lcd_line);
         fputs("]}", stdout);
+    }
+    if (seven_segment_attached) {
+        printf(",\"sevenSegment\":{\"segments\":%u}",
+               sim_seven_segment_visible_segments(&seven_segment));
+    }
+    if (hc595_attached) {
+        printf(",\"hc595\":{\"shiftRegister\":%u,\"outputs\":%u}",
+               hc595.shift_register, hc595.outputs);
     }
 
     fputs(",\"stack\":[", stdout);
@@ -196,6 +213,39 @@ static void update_lcd1602_lines(void)
         (gpio & (1u << lcd1602_sda_pin)) != 0);
 }
 
+static void update_hc595_lines(void)
+{
+    uint8_t gpio;
+    SimDevice *device;
+
+    if (!hc595_attached) return;
+    gpio = pic10_gpio_value(&cpu);
+    device = &hc595.base;
+    device->ops->pin_changed(
+        device, 0, (gpio & (1u << hc595_data_pin))
+        ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW);
+    device->ops->pin_changed(
+        device, 1, (gpio & (1u << hc595_clock_pin))
+        ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW);
+    device->ops->pin_changed(
+        device, 2, (gpio & (1u << hc595_latch_pin))
+        ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW);
+
+    /*
+     * Web 后端目前为每颗 MCU 维护一个扩展器实例。这里仍通过七段数码管的
+     * 八个独立引脚传递并行电平，而不是直接复制段码，保持两个器件边界清晰。
+     */
+    if (seven_segment_attached) {
+        unsigned pin;
+        for (pin = 0; pin < 8u; ++pin) {
+            seven_segment.base.ops->pin_changed(
+                &seven_segment.base, pin,
+                (hc595.outputs & (1u << pin))
+                ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW);
+        }
+    }
+}
+
 static unsigned step_cpu(void)
 {
     unsigned consumed;
@@ -204,6 +254,7 @@ static unsigned step_cpu(void)
     consumed = pic10_step_cycles(&cpu);
     update_w25q_lines();
     update_lcd1602_lines();
+    update_hc595_lines();
     return consumed;
 }
 
@@ -349,6 +400,50 @@ static void configure_lcd1602(char **cursor)
     print_state(false);
 }
 
+static void configure_hc595(char **cursor)
+{
+    char *data_text = next_field(cursor);
+    char *clock_text = next_field(cursor);
+    char *latch_text = next_field(cursor);
+    unsigned pins[3];
+
+    if (data_text == NULL || clock_text == NULL || latch_text == NULL) {
+        print_error("74HC595 configuration parameters are incomplete");
+        return;
+    }
+    pins[0] = (unsigned)strtoul(data_text, NULL, 0);
+    pins[1] = (unsigned)strtoul(clock_text, NULL, 0);
+    pins[2] = (unsigned)strtoul(latch_text, NULL, 0);
+    if (pins[0] > 3u || pins[1] > 3u || pins[2] > 3u ||
+        pins[0] == pins[1] || pins[0] == pins[2] || pins[1] == pins[2]) {
+        print_error("Invalid 74HC595 GPIO pins");
+        return;
+    }
+    sim_hc595_init(&hc595, "74hc595");
+    hc595_data_pin = pins[0];
+    hc595_clock_pin = pins[1];
+    hc595_latch_pin = pins[2];
+    hc595_attached = true;
+    update_hc595_lines();
+    print_state(false);
+}
+
+static void configure_seven_segment(char **cursor)
+{
+    char *active_high_text = next_field(cursor);
+    bool active_high;
+
+    if (active_high_text == NULL) {
+        print_error("Seven-segment configuration parameters are incomplete");
+        return;
+    }
+    active_high = strtoul(active_high_text, NULL, 0) != 0;
+    sim_seven_segment_init(&seven_segment, "seven-segment", active_high);
+    seven_segment_attached = true;
+    update_hc595_lines();
+    print_state(false);
+}
+
 static void print_w25q_data(char **cursor)
 {
     char *offset_text = next_field(cursor);
@@ -468,6 +563,8 @@ int main(void)
                     w25q_attached = false;
                 }
                 lcd1602_attached = false;
+                hc595_attached = false;
+                seven_segment_attached = false;
                 loaded = true;
                 print_state(true);
             }
@@ -488,6 +585,13 @@ int main(void)
                 sim_i2c_lcd1602_reset(&lcd1602);
                 drive_lcd1602_pullups();
                 update_lcd1602_lines();
+            }
+            if (seven_segment_attached) {
+                seven_segment.base.ops->reset(&seven_segment.base);
+            }
+            if (hc595_attached) {
+                hc595.base.ops->reset(&hc595.base);
+                update_hc595_lines();
             }
             print_state(false);
         } else if (strcmp(command, "step") == 0) {
@@ -524,6 +628,10 @@ int main(void)
             write_w25q_data(&cursor);
         } else if (strcmp(command, "lcd1602_config") == 0) {
             configure_lcd1602(&cursor);
+        } else if (strcmp(command, "seven_segment_config") == 0) {
+            configure_seven_segment(&cursor);
+        } else if (strcmp(command, "hc595_config") == 0) {
+            configure_hc595(&cursor);
         } else {
             print_error("未知的Web后端命令");
         }

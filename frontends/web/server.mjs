@@ -214,6 +214,14 @@ async function api(request, response, url) {
         "lcd1602_config", value.address ?? 0x27,
         value.sdaPin, value.sclPin
       ];
+    } else if (command === "seven_segment_config") {
+      fields = [
+        "seven_segment_config", value.activeHigh === false ? 0 : 1
+      ];
+    } else if (command === "hc595_config") {
+      fields = [
+        "hc595_config", value.dataPin, value.clockPin, value.latchPin
+      ];
     } else if (["reset", "state", "flash"].includes(command)) {
       fields = [command];
     } else {

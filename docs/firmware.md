@@ -37,6 +37,17 @@ examples/buzzer/build/firmware.hex
 make -C examples/blink
 ```
 
+Windows PowerShell 可以把同一条构建命令交给 WSL，例如：
+
+```powershell
+wsl.exe --cd E:\Projects\PicEmu bash -ic `
+  "make -C examples/seven_segment firmware"
+```
+
+`-i` 会加载用户在 `.bashrc` 中配置的 XC8 环境。构建规则优先读取 `XC8`
+和 `PIC10_DFP` 环境变量，未设置 `XC8` 时从 `PATH` 查找 `xc8-cc`；
+仍可通过 `XC8=`、`DFP=` 显式覆盖。
+
 所有示例及用途见[示例说明](examples.md)。
 
 ## 嵌入式平台

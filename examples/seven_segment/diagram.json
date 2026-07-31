@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "clockHz": 4000000,
+  "firmware": "examples/seven_segment/build/firmware.hex",
+  "parts": [
+    {
+      "id": "mcu",
+      "type": "pic10f200",
+      "left": 260,
+      "top": 220,
+      "attrs": {
+        "firmware": "examples/seven_segment/build/firmware.hex"
+      }
+    },
+    {
+      "id": "shift",
+      "type": "hc595",
+      "left": 650,
+      "top": 220,
+      "attrs": {}
+    },
+    {
+      "id": "display",
+      "type": "seven-segment",
+      "left": 1020,
+      "top": 220,
+      "attrs": {
+        "activeHigh": true,
+        "color": "red"
+      }
+    }
+  ],
+  "connections": [
+    ["mcu:GP0", "shift:SER", "#55d6a4", []],
+    ["mcu:GP1", "shift:SRCLK", "#5ca9ff", []],
+    ["mcu:GP2", "shift:RCLK", "#ffd166", []],
+    ["shift:Q0", "display:a", "#ef5964", []],
+    ["shift:Q1", "display:b", "#ef5964", []],
+    ["shift:Q2", "display:c", "#ef5964", []],
+    ["shift:Q3", "display:d", "#ef5964", []],
+    ["shift:Q4", "display:e", "#ef5964", []],
+    ["shift:Q5", "display:f", "#ef5964", []],
+    ["shift:Q6", "display:g", "#ef5964", []],
+    ["shift:Q7", "display:dp", "#ef5964", []]
+  ]
+}

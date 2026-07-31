@@ -115,6 +115,24 @@ const pinDefs = {
     { name:"SDA", label:"SDA", side:"left", top:34 },
     { name:"SCL", label:"SCL", side:"left", top:84 }
   ],
+  "seven-segment": [
+    { name:"a", label:"a", side:"left", top:9 },
+    { name:"b", label:"b", side:"left", top:31 },
+    { name:"c", label:"c", side:"left", top:53 },
+    { name:"d", label:"d", side:"left", top:75 },
+    { name:"e", label:"e", side:"left", top:97 },
+    { name:"f", label:"f", side:"left", top:119 },
+    { name:"g", label:"g", side:"left", top:141 },
+    { name:"dp", label:"dp", side:"left", top:163 }
+  ],
+  hc595: [
+    { name:"SER", label:"SER", side:"left", top:24 },
+    { name:"SRCLK", label:"SRCLK", side:"left", top:74 },
+    { name:"RCLK", label:"RCLK", side:"left", top:124 },
+    ...Array.from({length:8}, (_, index) => ({
+      name:`Q${index}`, label:`Q${index}`, side:"right", top:8 + index * 22
+    }))
+  ],
   led: [{ name:"A", gpio:null }],
   pushbutton: [{ name:"1", gpio:null }],
   buzzer: [{ name:"1", gpio:null }]
@@ -154,6 +172,8 @@ function partClass(type) {
   return isMcuType(type) ? "mcu"
     : type === "w25q" ? "flash-chip"
     : type === "i2c-lcd1602" ? "lcd1602-part"
+    : type === "seven-segment" ? "seven-segment-part"
+    : type === "hc595" ? "hc595-part"
     : type === "led" ? "led-part"
     : type === "pushbutton" ? "button-part" : "buzzer-part";
 }
@@ -166,6 +186,8 @@ function partSize(type) {
   if (isMcuType(type)) return { width: 300, height: 240 };
   if (type === "w25q") return { width: 180, height: 150 };
   if (type === "i2c-lcd1602") return { width: 430, height: 154 };
+  if (type === "seven-segment") return { width: 150, height: 190 };
+  if (type === "hc595") return { width: 170, height: 205 };
   if (type === "led") return { width: 48, height: 48 };
   if (type === "pushbutton") return { width: 110, height: 60 };
   return { width: 60, height: 60 };
@@ -173,7 +195,8 @@ function partSize(type) {
 function partTopLeft(part) {
   const size = partSize(part.type);
   if (isMcuType(part.type) || part.type === "w25q" ||
-      part.type === "i2c-lcd1602") {
+      part.type === "i2c-lcd1602" || part.type === "seven-segment" ||
+      part.type === "hc595") {
     return { left: part.left, top: part.top };
   }
   return {
@@ -341,6 +364,42 @@ function renderPart(part) {
       });
       el.querySelector(".part-body").appendChild(pin);
     }
+  } else if (part.type === "seven-segment") {
+    el.innerHTML = `<div class="part-body">
+      <div class="seven-display">
+        <i data-segment="a"></i><i data-segment="b"></i>
+        <i data-segment="c"></i><i data-segment="d"></i>
+        <i data-segment="e"></i><i data-segment="f"></i>
+        <i data-segment="g"></i><i data-segment="dp"></i>
+      </div></div><div class="part-label">${part.id}</div>`;
+    for (const pinDef of pinDefs["seven-segment"]) {
+      const pin = document.createElement("div");
+      pin.className = "pin left";
+      pin.style.top = `${pinDef.top}px`;
+      pin.textContent = pinDef.label;
+      pin.dataset.pin = pinDef.name;
+      pin.addEventListener("pointerdown", event => {
+        event.stopPropagation();
+        selectPin(part, pinDef.name, pin);
+      });
+      el.querySelector(".part-body").appendChild(pin);
+    }
+  } else if (part.type === "hc595") {
+    el.innerHTML = `<div class="part-body"><i class="pin-one"></i>
+      <div class="hc595-title">74HC595</div></div>
+      <div class="part-label">${part.id}</div>`;
+    for (const pinDef of pinDefs.hc595) {
+      const pin = document.createElement("div");
+      pin.className = `pin ${pinDef.side}`;
+      pin.style.top = `${pinDef.top}px`;
+      pin.textContent = pinDef.label;
+      pin.dataset.pin = pinDef.name;
+      pin.addEventListener("pointerdown", event => {
+        event.stopPropagation();
+        selectPin(part, pinDef.name, pin);
+      });
+      el.querySelector(".part-body").appendChild(pin);
+    }
   } else if (part.type === "led") {
     el.innerHTML = `<div class="part-body"><i class="device-pin" data-pin="A"></i></div>
       <div class="part-label">${part.id}</div>`;
@@ -386,7 +445,8 @@ function pinPoint(endpoint) {
       bottom: stageY(part.top) + partSize(part.type).height
     };
   }
-  if (part.type === "w25q" || part.type === "i2c-lcd1602") {
+  if (part.type === "w25q" || part.type === "i2c-lcd1602" ||
+      part.type === "seven-segment" || part.type === "hc595") {
     const pin = pinDefs[part.type].find(item => item.name === pinName);
     if (!pin) return null;
     return {
@@ -504,6 +564,8 @@ function selectPin(part, pin, element) {
   message("连线已更新");
   configureAllW25(false).catch(error => message(error.message, true));
   configureAllLcd1602(false).catch(error => message(error.message, true));
+  configureAllHc595(false).catch(error => message(error.message, true));
+  configureAllSevenSegment(false).catch(error => message(error.message, true));
 }
 
 function beginPartDrag(event, part, el) {
@@ -619,6 +681,7 @@ function uniqueId(type) {
   const base = isMcuType(type) ? "mcu"
     : type === "w25q" ? "flash"
     : type === "i2c-lcd1602" ? "lcd"
+    : type === "hc595" ? "shift"
     : type === "pushbutton" ? "button" : type;
   let index = 1, value = base;
   while (model.diagram.parts.some(part => part.id === value)) value = base + index++;
@@ -648,6 +711,9 @@ stageViewport.addEventListener("drop", event => {
   if (type === "pushbutton") part.attrs = { activeLow: true };
   if (type === "w25q") part.attrs = { capacity: 2097152, data: "" };
   if (type === "i2c-lcd1602") part.attrs = { address: 0x27 };
+  if (type === "seven-segment") {
+    part.attrs = { activeHigh: true, color: "red" };
+  }
   model.diagram.parts.push(part);
   if (isMcuType(type)) selectActiveMcu(part.id);
   model.selectedIds.clear();
@@ -929,6 +995,91 @@ async function configureAllLcd1602(strict = true) {
   for (const display of displays) await configureLcd1602(display, strict);
 }
 
+function hc595Wiring(part) {
+  const result = {};
+  let mcuId = null;
+  for (const [chipPin, property] of [
+    ["SER", "dataPin"], ["SRCLK", "clockPin"], ["RCLK", "latchPin"]
+  ]) {
+    const endpoint = `${part.id}:${chipPin}`;
+    const connection = model.diagram.connections.find(item =>
+      item[0] === endpoint || item[1] === endpoint);
+    if (!connection) return null;
+    const other = connection[0] === endpoint ? connection[1] : connection[0];
+    const match = /^([^:]+):GP([0-3])$/.exec(other);
+    if (!match || (mcuId !== null && mcuId !== match[1])) return null;
+    mcuId = match[1];
+    result[property] = Number(match[2]);
+  }
+  return mcuParts().some(part => part.id === mcuId)
+    ? { mcuId, ...result } : null;
+}
+
+async function configureHc595(part, strict = true) {
+  const wiring = hc595Wiring(part);
+  if (!wiring) {
+    if (strict) {
+      throw new Error(`${part.id} 的 SER、SRCLK、RCLK 必须连接到同一颗 PIC`);
+    }
+    return false;
+  }
+  const result = await post("/api/command", {
+    command: "hc595_config",
+    mcuId: wiring.mcuId,
+    ...wiring
+  });
+  setState(result);
+  return true;
+}
+
+async function configureAllHc595(strict = true) {
+  const chips = model.diagram.parts.filter(part => part.type === "hc595");
+  for (const chip of chips) await configureHc595(chip, strict);
+}
+
+function sevenSegmentWiring(part) {
+  const segmentNames = ["a", "b", "c", "d", "e", "f", "g", "dp"];
+  let chipId = null;
+  for (let index = 0; index < segmentNames.length; ++index) {
+    const endpoint = `${part.id}:${segmentNames[index]}`;
+    const connection = model.diagram.connections.find(item =>
+      item[0] === endpoint || item[1] === endpoint);
+    if (!connection) return null;
+    const other = connection[0] === endpoint ? connection[1] : connection[0];
+    const match = /^([^:]+):Q([0-7])$/.exec(other);
+    if (!match || Number(match[2]) !== index ||
+        (chipId !== null && chipId !== match[1])) return null;
+    chipId = match[1];
+  }
+  const chip = model.diagram.parts.find(
+    item => item.id === chipId && item.type === "hc595");
+  const hcWiring = chip ? hc595Wiring(chip) : null;
+  return hcWiring ? { chipId, mcuId: hcWiring.mcuId } : null;
+}
+
+async function configureSevenSegment(part, strict = true) {
+  const wiring = sevenSegmentWiring(part);
+  if (!wiring) {
+    if (strict) {
+      throw new Error(`${part.id} 的 a～dp 必须依次连接到同一颗 74HC595 的 Q0～Q7`);
+    }
+    return false;
+  }
+  const result = await post("/api/command", {
+    command: "seven_segment_config",
+    mcuId: wiring.mcuId,
+    activeHigh: part.attrs?.activeHigh !== false
+  });
+  setState(result);
+  return true;
+}
+
+async function configureAllSevenSegment(strict = true) {
+  const displays = model.diagram.parts.filter(
+    part => part.type === "seven-segment");
+  for (const display of displays) await configureSevenSegment(display, strict);
+}
+
 function formatW25Dump(offset, data) {
   const rows = [];
   for (let index = 0; index < data.length; index += 16) {
@@ -1096,6 +1247,16 @@ function updatePartsFromState() {
         });
       }
     }
+    if (part.type === "seven-segment") {
+      const wiring = sevenSegmentWiring(part);
+      const segments = wiring
+        ? model.states.get(wiring.mcuId)?.sevenSegment?.segments : null;
+      if (segments !== null && segments !== undefined) {
+        ["a", "b", "c", "d", "e", "f", "g", "dp"].forEach(
+          (name, bit) => el.querySelector(`[data-segment="${name}"]`)
+            ?.classList.toggle("on", (segments & (1 << bit)) !== 0));
+      }
+    }
     if (part.type === "led" && connection?.state) {
       const { gpio, state } = connection;
       const duty = state.pinDuty?.[gpio] ?? ((state.gpio >> gpio) & 1);
@@ -1199,6 +1360,8 @@ async function loadDiagram(diagram, name = "电路", diagramPath = null) {
     states.filter(Boolean).forEach(setState);
     await configureAllW25(true);
     await configureAllLcd1602(true);
+    await configureAllHc595(true);
+    await configureAllSevenSegment(true);
     const loaded = states.filter(Boolean).length;
     const flashCount =
       model.diagram.parts.filter(part => part.type === "w25q").length;

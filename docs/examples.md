@@ -54,13 +54,7 @@ Windows PowerShell 可以直接启动 Web、STM32 或 FPGA 流程：
 | `led_chaser` | GP0～GP2 依次点亮 | 红绿蓝三个 LED | 多路 GPIO 输出 |
 | `playmusic` | GP2 产生不同频率方波 | 无源蜂鸣器 | 软件音调和完整程序空间测试 |
 | `spi_flash` | PIC10F202通过GP0～GP3软件模拟SPI，写入并读回 `HelloWorld` | W25Q、绿色结果 LED | 通用缓冲区读写接口和SPI Mode 0 |
-
-`spi_flash` 使用程序空间更大的 PIC10F202和一颗2 MiB的W25Q16。固件提供
-`w25q_write(address, data, length)` 与 `w25q_read(address, data, length)`
-缓冲区接口，`main()` 用它们把ASCII文本 `HelloWorld` 写到地址
-`0x000000`并读回比较，十个字节全部正确才点亮绿色LED。教学版写接口使用
-16位地址，并要求单次调用不跨越256字节页。PIC10F202没有硬件SPI，底层通信
-完全由固件翻转GPIO完成。
+| `seven_segment` | GP0发送数据、GP1提供移位时钟、GP2产生锁存脉冲 | 74HC595驱动的单位七段数码管 | 三线串行移位、段码与锁存时序 |
 
 ## 平台说明
 

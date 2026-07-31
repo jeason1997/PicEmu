@@ -4,6 +4,8 @@
 #include "picemu/sim/mcu/pic10.h"
 #include "picemu/sim/device.h"
 #include "picemu/sim/devices/led.h"
+#include "picemu/sim/devices/hc595.h"
+#include "picemu/sim/devices/seven_segment.h"
 #include "picemu/sim/devices/button.h"
 #include "picemu/sim/devices/buzzer.h"
 #include "picemu/sim/devices/w25q.h"
@@ -397,6 +399,37 @@ static void test_led_pwm_brightness(void)
     CHECK(led.brightness == 0);
 }
 
+static void test_seven_segment_shift_and_latch(void)
+{
+    SimHc595 chip;
+    SimSevenSegment display;
+    SimDevice *shift_device;
+    uint8_t value = 0x6Du; /* 数字 5：a、f、g、c、d 段点亮。 */
+    unsigned bit;
+
+    sim_hc595_init(&chip, "test shift register");
+    sim_seven_segment_init(&display, "test display", true);
+    shift_device = &chip.base;
+    for (bit = 0; bit < 8; ++bit) {
+        SimLevel data = (value & (0x80u >> bit))
+            ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW;
+        shift_device->ops->pin_changed(shift_device, 0, data);
+        shift_device->ops->pin_changed(shift_device, 1, SIM_LEVEL_HIGH);
+        shift_device->ops->pin_changed(shift_device, 1, SIM_LEVEL_LOW);
+    }
+    CHECK(chip.outputs == 0);
+    shift_device->ops->pin_changed(shift_device, 2, SIM_LEVEL_HIGH);
+    CHECK(chip.outputs == value);
+    for (bit = 0; bit < 8; ++bit) {
+        display.base.ops->pin_changed(
+            &display.base, bit, (chip.outputs & (1u << bit))
+            ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW);
+    }
+    CHECK(sim_seven_segment_visible_segments(&display) == value);
+    display.base.ops->reset(&display.base);
+    CHECK(sim_seven_segment_visible_segments(&display) == 0);
+}
+
 static void test_buzzer_uses_configured_clock(void)
 {
     SimBuzzer buzzer;
@@ -520,6 +553,7 @@ int main(void)
     test_extensible_board_devices();
     test_passive_buzzer_frequency();
     test_led_pwm_brightness();
+    test_seven_segment_shift_and_latch();
     test_buzzer_uses_configured_clock();
     test_network_merge();
     test_generic_circuit_properties();
