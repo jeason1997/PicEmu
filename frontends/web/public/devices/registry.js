@@ -1,26 +1,29 @@
-import { pic10f200, pic10f202 } from "./pic10.js";
-import led from "./led.js";
-import buzzer from "./buzzer.js";
-import lcd1602 from "./lcd1602.js";
-import sevenSegment from "./seven-segment.js";
-import pushbutton from "./pushbutton.js";
-import hc595 from "./hc595.js";
-import w25q from "./w25q.js";
-
 /*
  * 唯一的器件注册表。app.js 只面向这里公开的统一接口，不再包含具体器件模板。
  * 注册时立即检查重复类型，避免后加入的模块静默覆盖已有器件。
  */
-const definitions = [
-  pic10f200, pic10f202, led, buzzer, lcd1602,
-  sevenSegment, pushbutton, hc595, w25q
-];
+const definitions = [];
 const registry = new Map();
-for (const definition of definitions) {
-  if (registry.has(definition.type)) {
-    throw new Error(`重复注册 Web 器件：${definition.type}`);
+
+export async function initializeDeviceRegistry() {
+  if (definitions.length > 0) return;
+  const response = await fetch("/api/device-modules");
+  const result = await response.json();
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error || "无法读取 Web 器件模块列表");
   }
-  registry.set(definition.type, Object.freeze(definition));
+  for (const modulePath of result.modules) {
+    const loaded = await import(modulePath);
+    const candidates = loaded.devices ||
+      (Array.isArray(loaded.default) ? loaded.default : [loaded.default]);
+    for (const definition of candidates.filter(Boolean)) {
+      if (registry.has(definition.type)) {
+        throw new Error(`重复注册 Web 器件：${definition.type}`);
+      }
+      definitions.push(Object.freeze(definition));
+      registry.set(definition.type, definition);
+    }
+  }
 }
 
 export function deviceDefinition(type) {
@@ -43,9 +46,14 @@ export function renderPalette(container) {
     if (!groups.has(definition.category)) groups.set(definition.category, []);
     groups.get(definition.category).push(definition);
   }
-  container.innerHTML = [...groups].map(([category, devices]) => `
+  const orderedGroups = [...groups].sort((a, b) =>
+    Math.min(...a[1].map(device => device.categoryOrder ?? 999)) -
+    Math.min(...b[1].map(device => device.categoryOrder ?? 999)));
+  container.innerHTML = orderedGroups.map(([category, devices]) => `
     <div class="palette-group"><h3>${category}</h3>
-      ${devices.map(({ type, palette }) => `
+      ${devices.sort((a, b) =>
+        (a.palette.order ?? 999) - (b.palette.order ?? 999))
+        .map(({ type, palette }) => `
         <div class="palette-item" draggable="true" data-type="${type}">
           <span class="part-icon ${palette.iconClass}">${palette.iconText || ""}</span>
           <div><b>${palette.title}</b><small>${palette.detail}</small></div>
@@ -68,4 +76,17 @@ export function installDeviceStyles(documentRoot = document) {
   style.textContent = [...new Set(
     definitions.map(definition => definition.styles).filter(Boolean)
   )].join("\n");
+}
+
+export async function configureDevices(context, strict = true) {
+  for (const part of context.model.diagram.parts) {
+    const configure = deviceDefinition(part.type).configure;
+    if (configure) await configure(context, part, strict);
+  }
+}
+
+export function notifyDevices(context, hook, ...args) {
+  for (const part of context.model.diagram.parts) {
+    deviceDefinition(part.type)[hook]?.(context, part, ...args);
+  }
 }

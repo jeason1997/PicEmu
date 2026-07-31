@@ -4,8 +4,9 @@ export default {
   type: "led",
   defaultAttrs: { color: "red" },
   category: "输出器件",
+  categoryOrder: 1,
   palette: {
-    title: "LED", detail: "红 / 绿 / 蓝 / 黄", iconClass: "led-icon"
+    title: "LED", detail: "红 / 绿 / 蓝 / 黄", iconClass: "led-icon", order: 0
   },
   className: "led-part",
   size: { width: 48, height: 48 },
@@ -43,5 +44,29 @@ export default {
       `<div class="part-body"><i class="device-pin" data-pin="A"></i></div>`,
       part.id
     );
+  },
+  update(context, part, element) {
+    const connection = context.connectedMcuPin(part, "A");
+    if (!connection?.state) return;
+    const { gpio, state } = connection;
+    const duty = state.pinDuty?.[gpio] ?? ((state.gpio >> gpio) & 1);
+    element.classList.toggle("lit", duty > 0.01);
+    element.querySelector(".part-body").style.opacity =
+      String(0.22 + Math.pow(duty, 0.55) * 0.78);
+  },
+  inspectorHtml() {
+    return `<div class="property-row"><label>颜色</label>
+      <select id="propColor"><option>red</option><option>green</option>
+      <option>blue</option><option>yellow</option></select></div>`;
+  },
+  bindInspector(context, part) {
+    const color = context.$("#propColor");
+    color.value = part.attrs?.color || "red";
+    color.addEventListener("change", event => {
+      part.attrs ||= {};
+      part.attrs.color = event.target.value;
+      context.renderAll();
+      context.recordHistory();
+    });
   }
 };

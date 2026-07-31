@@ -1,12 +1,33 @@
-import { labeledPart, pin } from "./device.js";
+import { labeledPart, picWiring, pin } from "./device.js";
+
+export function wiring(context, part) {
+  return picWiring(context, part, {
+    SER: "dataPin", SRCLK: "clockPin", RCLK: "latchPin"
+  });
+}
+
+async function configure(context, part, strict = true) {
+  const connection = wiring(context, part);
+  if (!connection) {
+    if (strict) {
+      throw new Error(`${part.id} 的 SER、SRCLK、RCLK 必须连接到同一颗 PIC`);
+    }
+    return false;
+  }
+  context.setState(await context.post("/api/command", {
+    command: "hc595_config", mcuId: connection.mcuId, ...connection
+  }));
+  return true;
+}
 
 export default {
   type: "hc595",
   idPrefix: "shift",
   category: "存储器",
+  categoryOrder: 3,
   palette: {
     title: "74HC595", detail: "8位串入并出",
-    iconClass: "hc595-icon", iconText: "595"
+    iconClass: "hc595-icon", iconText: "595", order: 0
   },
   className: "hc595-part",
   size: { width: 170, height: 205 },
@@ -34,5 +55,6 @@ export default {
   render(part) {
     return labeledPart(`<div class="part-body"><i class="pin-one"></i>
       <div class="hc595-title">74HC595</div></div>`, part.id);
-  }
+  },
+  configure
 };

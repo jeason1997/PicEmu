@@ -1,4 +1,4 @@
-import { labeledPart, pin } from "./device.js";
+import { labeledPart, picWiring, pin } from "./device.js";
 
 const glyphs = {
   " ": [0,0,0,0,0,0,0], "?": [14,17,1,2,4,0,4],
@@ -40,14 +40,34 @@ export function lineHtml(text = "") {
   return text.padEnd(16).slice(0, 16).split("").map(cell).join("");
 }
 
+export function wiring(context, part) {
+  return picWiring(context, part, { SDA: "sdaPin", SCL: "sclPin" });
+}
+
+async function configure(context, part, strict = true) {
+  const connection = wiring(context, part);
+  if (!connection) {
+    if (strict) throw new Error(`${part.id} 的 SDA、SCL 必须连接到同一颗 PIC`);
+    return false;
+  }
+  context.setState(await context.post("/api/command", {
+    command: "lcd1602_config",
+    mcuId: connection.mcuId,
+    address: Number(part.attrs?.address ?? 0x27),
+    ...connection
+  }));
+  return true;
+}
+
 export default {
   type: "i2c-lcd1602",
   idPrefix: "lcd",
   defaultAttrs: { address: 0x27 },
   category: "输出器件",
+  categoryOrder: 1,
   palette: {
     title: "I²C LCD1602", detail: "PCF8574 · HD44780",
-    iconClass: "lcd-icon", iconText: "16×2"
+    iconClass: "lcd-icon", iconText: "16×2", order: 2
   },
   className: "lcd1602-part",
   size: { width: 430, height: 154 },
@@ -86,5 +106,39 @@ export default {
       <div class="lcd-bezel"><div class="lcd-line" data-text="">${lineHtml()}</div>
       <div class="lcd-line" data-text="">${lineHtml()}</div></div></div>`,
     part.id, ` · 0x${address}`);
+  },
+  configure,
+  update(context, part, element) {
+    const connection = wiring(context, part);
+    const lines = connection
+      ? context.model.states.get(connection.mcuId)?.lcd1602?.lines : null;
+    if (!lines) return;
+    element.querySelectorAll(".lcd-line").forEach((line, index) => {
+      const text = (lines[index] || "").padEnd(16).slice(0, 16);
+      if (line.dataset.text !== text) {
+        line.dataset.text = text;
+        line.innerHTML = lineHtml(text);
+      }
+    });
+  },
+  inspectorHtml() {
+    return `<div class="property-row"><label>I²C address</label>
+      <select id="propLcdAddress"><option value="39">0x27</option>
+      <option value="63">0x3F</option></select></div>`;
+  },
+  bindInspector(context, part) {
+    const address = context.$("#propLcdAddress");
+    address.value = String(part.attrs?.address ?? 0x27);
+    address.addEventListener("change", async event => {
+      part.attrs ||= {};
+      part.attrs.address = Number(event.target.value);
+      context.recordHistory();
+      context.renderAll();
+      try {
+        await configure(context, part, true);
+      } catch (error) {
+        context.message(error.message, true);
+      }
+    });
   }
 };

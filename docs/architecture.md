@@ -26,7 +26,7 @@ PicEmu/
 │   └── common/            位图文字等公共绘图代码
 ├── frontends/web/
 │   ├── public/
-│   │   ├── devices/       各器件的元数据、引脚、模板和专属样式
+│   │   ├── devices/       各器件完整的视图、协议、交互和生命周期模块
 │   │   └── app.js         通用画布、连线、调试和状态调度
 │   ├── backend/           面向Web的C调试协议进程
 │   ├── scripts/           Linux主启动脚本和PowerShell包装
@@ -64,6 +64,8 @@ XC8 HEX -> HEX转MEM -> FPGA BSRAM初值和位流
 - 虚拟器件只通过引脚驱动和观察网络，不直接访问CPU内部状态。
 - SDL应用不写死器件和连线，电路由JSON决定。
 - Web负责编辑和调试交互，PIC指令仍由C后端执行，不在JavaScript中复制。
+- Web 应用入口只调度器件生命周期，不识别 W25Q、LCD、LED 等具体类型；
+  Node 服务自动发现器件脚本，新增器件不需要修改注册表或页面入口。
 - STM32桥接不依赖SDL，可把虚拟PIC引脚映射到真实GPIO。
 - FPGA是独立RTL实现，不链接C模拟器；它通过相同XC8 HEX验证兼容行为。
 

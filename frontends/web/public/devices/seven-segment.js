@@ -1,12 +1,50 @@
 import { labeledPart, pin } from "./device.js";
+import { wiring as hc595Wiring } from "./hc595.js";
+
+const segmentNames = ["a", "b", "c", "d", "e", "f", "g", "dp"];
+
+function wiring(context, part) {
+  let chipId = null;
+  for (let index = 0; index < segmentNames.length; index++) {
+    const endpoint = `${part.id}:${segmentNames[index]}`;
+    const connection = context.model.diagram.connections.find(item =>
+      item[0] === endpoint || item[1] === endpoint);
+    if (!connection) return null;
+    const other = connection[0] === endpoint ? connection[1] : connection[0];
+    const match = /^([^:]+):Q([0-7])$/.exec(other);
+    if (!match || Number(match[2]) !== index ||
+        (chipId !== null && chipId !== match[1])) return null;
+    chipId = match[1];
+  }
+  const chip = context.model.diagram.parts.find(item =>
+    item.id === chipId && item.type === "hc595");
+  const chipWiring = chip ? hc595Wiring(context, chip) : null;
+  return chipWiring ? { chipId, mcuId: chipWiring.mcuId } : null;
+}
+
+async function configure(context, part, strict = true) {
+  const connection = wiring(context, part);
+  if (!connection) {
+    if (strict) {
+      throw new Error(`${part.id} 的 a～dp 必须依次连接到同一颗 74HC595 的 Q0～Q7`);
+    }
+    return false;
+  }
+  context.setState(await context.post("/api/command", {
+    command: "seven_segment_config", mcuId: connection.mcuId,
+    activeHigh: part.attrs?.activeHigh !== false
+  }));
+  return true;
+}
 
 export default {
   type: "seven-segment",
   defaultAttrs: { activeHigh: true, color: "red" },
   category: "输出器件",
+  categoryOrder: 1,
   palette: {
     title: "七段数码管", detail: "a～g、dp 独立输入",
-    iconClass: "seven-segment-icon", iconText: "8."
+    iconClass: "seven-segment-icon", iconText: "8.", order: 3
   },
   className: "seven-segment-part",
   size: { width: 150, height: 190 },
@@ -57,5 +95,15 @@ export default {
       ${["a","b","c","d","e","f","g","dp"].map(
         segment => `<i data-segment="${segment}"></i>`).join("")}
       </div></div>`, part.id);
+  },
+  configure,
+  update(context, part, element) {
+    const connection = wiring(context, part);
+    const segments = connection
+      ? context.model.states.get(connection.mcuId)?.sevenSegment?.segments : null;
+    if (segments === null || segments === undefined) return;
+    segmentNames.forEach((name, bit) =>
+      element.querySelector(`[data-segment="${name}"]`)
+        ?.classList.toggle("on", (segments & (1 << bit)) !== 0));
   }
 };

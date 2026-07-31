@@ -5,9 +5,10 @@ export default {
   idPrefix: "button",
   defaultAttrs: { activeLow: true },
   category: "输入器件",
+  categoryOrder: 2,
   palette: {
     title: "按键", detail: "按住产生低电平",
-    iconClass: "button-icon", iconText: "↧"
+    iconClass: "button-icon", iconText: "↧", order: 0
   },
   className: "button-part",
   size: { width: 110, height: 60 },
@@ -29,5 +30,25 @@ export default {
   render(part) {
     return labeledPart(`<div class="part-body"><span class="button-cap"></span>
       <i class="device-pin" data-pin="1"></i></div>`, part.id);
+  },
+  pointerDown(context, part, element) {
+    part.pressed = true;
+    element.classList.add("pressed");
+  },
+  pointerUp(context, part, element) {
+    part.pressed = false;
+    element.classList.remove("pressed");
+  },
+  contributeInput(context, part, mcuId, input) {
+    const endpoint = `${part.id}:1`;
+    const connection = context.model.diagram.connections.find(item =>
+      item.includes(endpoint) &&
+      item.some(value => value.startsWith(`${mcuId}:GP`)));
+    if (!connection) return;
+    const mcuEnd = connection.find(value => value.startsWith(`${mcuId}:GP`));
+    const pinNumber = Number(mcuEnd.match(/GP(\d)/)?.[1]);
+    if (!Number.isFinite(pinNumber)) return;
+    input.inputMask |= 1 << pinNumber;
+    if (!part.pressed) input.inputValues |= 1 << pinNumber;
   }
 };

@@ -11,3 +11,25 @@ export function pin(name, label, side, top, gpio = undefined) {
 export function labeledPart(body, id, extraLabel = "") {
   return `${body}<div class="part-label">${id}${extraLabel}</div>`;
 }
+
+/*
+ * 按给定引脚映射解析“本器件的若干引脚连接到同一颗 PIC GPIO”。协议器件
+ * 共用这段校验，具体器件模块仍负责决定需要哪些引脚以及后端字段名称。
+ */
+export function picWiring(context, part, pinMap) {
+  const result = {};
+  let mcuId = null;
+  for (const [devicePin, property] of Object.entries(pinMap)) {
+    const endpoint = `${part.id}:${devicePin}`;
+    const connection = context.model.diagram.connections.find(item =>
+      item[0] === endpoint || item[1] === endpoint);
+    if (!connection) return null;
+    const other = connection[0] === endpoint ? connection[1] : connection[0];
+    const match = /^([^:]+):GP([0-3])$/.exec(other);
+    if (!match || (mcuId !== null && mcuId !== match[1])) return null;
+    mcuId = match[1];
+    result[property] = Number(match[2]);
+  }
+  return context.mcuParts().some(mcu => mcu.id === mcuId)
+    ? { mcuId, ...result } : null;
+}

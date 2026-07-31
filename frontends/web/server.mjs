@@ -130,12 +130,28 @@ async function listExamples() {
   return result;
 }
 
+async function listDeviceModules() {
+  const root = path.join(webRoot, "devices");
+  const ignored = new Set(["device.js", "registry.js"]);
+  return (await fs.readdir(root, { withFileTypes: true }))
+    .filter(entry => entry.isFile() && entry.name.endsWith(".js") &&
+      !ignored.has(entry.name))
+    .map(entry => `/devices/${entry.name}`)
+    .sort();
+}
+
 async function api(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/examples") {
     return json(response, 200, {
       ok: true,
       initialExample,
       examples: await listExamples()
+    });
+  }
+  if (request.method === "GET" && url.pathname === "/api/device-modules") {
+    return json(response, 200, {
+      ok: true,
+      modules: await listDeviceModules()
     });
   }
   if (request.method === "GET" && url.pathname === "/api/file") {
@@ -260,7 +276,9 @@ const server = createServer(async (request, response) => {
     const data = await fs.readFile(file);
     response.writeHead(200, {
       "Content-Type": mime.get(path.extname(file)) ||
-        "application/octet-stream"
+        "application/octet-stream",
+      /* 本地开发服务必须让重构后的器件模块立即生效，避免浏览器复用旧 ESM。 */
+      "Cache-Control": "no-store"
     });
     response.end(data);
   } catch (error) {

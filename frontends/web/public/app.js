@@ -1,8 +1,9 @@
 import {
-  deviceDefinition, hasDevice, installDeviceStyles, isMcuType, renderPalette
+  configureDevices, deviceDefinition, hasDevice, installDeviceStyles,
+  initializeDeviceRegistry, isMcuType, notifyDevices, renderPalette
 } from "./devices/registry.js";
-import { capacities as W25_CAPACITIES } from "./devices/w25q.js";
-import { lineHtml as lcdLineHtml } from "./devices/lcd1602.js";
+
+await initializeDeviceRegistry();
 
 const $ = selector => document.querySelector(selector);
 const stage = $("#stage");
@@ -42,23 +43,12 @@ const model = {
    * diagram.json 的外设初值，避免启动前的调试写入改变固件所见的上电状态。
    */
   executionStarted: false,
-  audio: null,
-  oscillator: null,
-  gain: null,
   zoom: 1,
   diagramName: "未命名电路",
   diagramPath: null,
   hexTargetId: null,
   history: [],
-  historyIndex: -1,
-  w25Offsets: new Map(),
-  w25RefreshPending: false,
-  /*
-   * 查看器读取是异步的。切换示例或重建属性面板时递增此代次，使旧请求即使
-   * 较晚返回，也不能再把已经失效的 DOM 和新电路的显示状态覆盖掉。
-   */
-  w25RefreshGeneration: 0,
-  w25LastRefresh: 0
+  historyIndex: -1
 };
 
 function mcuDevice(part) {
@@ -366,10 +356,8 @@ function selectPin(part, pin, element) {
   renderPortDirections();
   renderWires();
   message("连线已更新");
-  configureAllW25(false).catch(error => message(error.message, true));
-  configureAllLcd1602(false).catch(error => message(error.message, true));
-  configureAllHc595(false).catch(error => message(error.message, true));
-  configureAllSevenSegment(false).catch(error => message(error.message, true));
+  configureDevices(deviceContext(), false)
+    .catch(error => message(error.message, true));
 }
 
 function beginPartDrag(event, part, el) {
@@ -402,10 +390,8 @@ function beginPartDrag(event, part, el) {
     .filter(item => model.selectedIds.has(item.id))
     .map(item => [item.id, { left: item.left, top: item.top }]));
   let finished = false;
-  if (part.type === "pushbutton") {
-    part.pressed = true;
-    el.classList.add("pressed");
-  }
+  const definition = deviceDefinition(part.type);
+  definition.pointerDown?.(deviceContext(), part, el);
   el.setPointerCapture(event.pointerId);
   const move = e => {
     const dx = snap((e.clientX - startX) / model.zoom);
@@ -433,10 +419,7 @@ function beginPartDrag(event, part, el) {
   const up = () => {
     if (finished) return;
     finished = true;
-    if (part.type === "pushbutton") {
-      part.pressed = false;
-      el.classList.remove("pressed");
-    }
+    definition.pointerUp?.(deviceContext(), part, el);
     el.removeEventListener("pointermove", move);
     el.removeEventListener("pointerup", up);
     el.removeEventListener("pointercancel", up);
@@ -452,8 +435,7 @@ function beginPartDrag(event, part, el) {
 
 function renderPortDirections() {
   for (const part of model.diagram.parts) {
-    if (isMcuType(part.type) || part.type === "w25q" ||
-        part.type === "i2c-lcd1602") continue;
+    if (!deviceDefinition(part.type).pins.some(pin => pin.dynamic)) continue;
     const pin = document.querySelector(
       `.part[data-id="${CSS.escape(part.id)}"] .device-pin`);
     if (!pin) continue;
@@ -682,22 +664,12 @@ $("#zoomResetBtn").addEventListener("click", () => setZoom(1));
 $("#zoomFitBtn").addEventListener("click", fitDiagram);
 
 function inputState(mcuId = model.activeMcuId) {
-  let mask = 0, values = 0;
-  const mcu = model.diagram.parts.find(
-    p => isMcuType(p.type) && p.id === mcuId);
-  if (!mcu) return { inputMask: 0, inputValues: 0 };
-  for (const part of model.diagram.parts.filter(p => p.type === "pushbutton")) {
-    const connection = model.diagram.connections.find(c =>
-      c.includes(`${part.id}:1`) &&
-      c.some(value => value.startsWith(`${mcu.id}:GP`)));
-    if (!connection) continue;
-    const mcuEnd = connection.find(value => value.startsWith(`${mcu.id}:GP`));
-    const pin = Number(mcuEnd.match(/GP(\d)/)?.[1]);
-    if (!Number.isFinite(pin)) continue;
-    mask |= 1 << pin;
-    if (!part.pressed) values |= 1 << pin;
+  const input = { inputMask: 0, inputValues: 0 };
+  const context = deviceContext();
+  for (const part of model.diagram.parts) {
+    deviceDefinition(part.type).contributeInput?.(context, part, mcuId, input);
   }
-  return { inputMask: mask, inputValues: values };
+  return input;
 }
 
 async function command(commandName, extra = {}, mcuId = model.activeMcuId) {
@@ -706,244 +678,6 @@ async function command(commandName, extra = {}, mcuId = model.activeMcuId) {
   });
   setState(result);
   return result;
-}
-
-function w25Wiring(part) {
-  const pins = { "/CS": "csPin", CLK: "clockPin", DI: "mosiPin", DO: "misoPin" };
-  const result = {};
-  let mcuId = null;
-  for (const [flashPin, property] of Object.entries(pins)) {
-    const endpoint = `${part.id}:${flashPin}`;
-    const connection = model.diagram.connections.find(item =>
-      item[0] === endpoint || item[1] === endpoint);
-    if (!connection) return null;
-    const other = connection[0] === endpoint ? connection[1] : connection[0];
-    const match = /^([^:]+):GP([0-3])$/.exec(other);
-    if (!match || (mcuId !== null && mcuId !== match[1])) return null;
-    mcuId = match[1];
-    result[property] = Number(match[2]);
-  }
-  if (!mcuParts().some(part => part.id === mcuId)) return null;
-  return { mcuId, ...result };
-}
-
-async function configureW25(part, strict = true) {
-  const wiring = w25Wiring(part);
-  if (!wiring) {
-    if (strict) {
-      throw new Error(`${part.id}需要把/CS、CLK、DI、DO连接到同一颗PIC`);
-    }
-    return false;
-  }
-  part.attrs ||= {};
-  const result = await post("/api/command", {
-    command: "w25_config",
-    mcuId: wiring.mcuId,
-    capacity: Number(part.attrs.capacity || 2097152),
-    initialData: part.attrs.data || "",
-    ...wiring
-  });
-  setState(result);
-  return true;
-}
-
-async function configureAllW25(strict = true) {
-  const flashes = model.diagram.parts.filter(part => part.type === "w25q");
-  for (const flash of flashes) await configureW25(flash, strict);
-}
-
-function lcd1602Wiring(part) {
-  const result = {};
-  let mcuId = null;
-  for (const [lcdPin, property] of [["SDA", "sdaPin"], ["SCL", "sclPin"]]) {
-    const endpoint = `${part.id}:${lcdPin}`;
-    const connection = model.diagram.connections.find(item =>
-      item[0] === endpoint || item[1] === endpoint);
-    if (!connection) return null;
-    const other = connection[0] === endpoint ? connection[1] : connection[0];
-    const match = /^([^:]+):GP([0-3])$/.exec(other);
-    if (!match || (mcuId !== null && mcuId !== match[1])) return null;
-    mcuId = match[1];
-    result[property] = Number(match[2]);
-  }
-  return mcuParts().some(part => part.id === mcuId)
-    ? { mcuId, ...result } : null;
-}
-
-async function configureLcd1602(part, strict = true) {
-  const wiring = lcd1602Wiring(part);
-  if (!wiring) {
-    if (strict) throw new Error(`${part.id} must connect SDA and SCL to one PIC`);
-    return false;
-  }
-  const result = await post("/api/command", {
-    command: "lcd1602_config",
-    mcuId: wiring.mcuId,
-    address: Number(part.attrs?.address ?? 0x27),
-    ...wiring
-  });
-  setState(result);
-  return true;
-}
-
-async function configureAllLcd1602(strict = true) {
-  const displays = model.diagram.parts.filter(
-    part => part.type === "i2c-lcd1602");
-  for (const display of displays) await configureLcd1602(display, strict);
-}
-
-function hc595Wiring(part) {
-  const result = {};
-  let mcuId = null;
-  for (const [chipPin, property] of [
-    ["SER", "dataPin"], ["SRCLK", "clockPin"], ["RCLK", "latchPin"]
-  ]) {
-    const endpoint = `${part.id}:${chipPin}`;
-    const connection = model.diagram.connections.find(item =>
-      item[0] === endpoint || item[1] === endpoint);
-    if (!connection) return null;
-    const other = connection[0] === endpoint ? connection[1] : connection[0];
-    const match = /^([^:]+):GP([0-3])$/.exec(other);
-    if (!match || (mcuId !== null && mcuId !== match[1])) return null;
-    mcuId = match[1];
-    result[property] = Number(match[2]);
-  }
-  return mcuParts().some(part => part.id === mcuId)
-    ? { mcuId, ...result } : null;
-}
-
-async function configureHc595(part, strict = true) {
-  const wiring = hc595Wiring(part);
-  if (!wiring) {
-    if (strict) {
-      throw new Error(`${part.id} 的 SER、SRCLK、RCLK 必须连接到同一颗 PIC`);
-    }
-    return false;
-  }
-  const result = await post("/api/command", {
-    command: "hc595_config",
-    mcuId: wiring.mcuId,
-    ...wiring
-  });
-  setState(result);
-  return true;
-}
-
-async function configureAllHc595(strict = true) {
-  const chips = model.diagram.parts.filter(part => part.type === "hc595");
-  for (const chip of chips) await configureHc595(chip, strict);
-}
-
-function sevenSegmentWiring(part) {
-  const segmentNames = ["a", "b", "c", "d", "e", "f", "g", "dp"];
-  let chipId = null;
-  for (let index = 0; index < segmentNames.length; ++index) {
-    const endpoint = `${part.id}:${segmentNames[index]}`;
-    const connection = model.diagram.connections.find(item =>
-      item[0] === endpoint || item[1] === endpoint);
-    if (!connection) return null;
-    const other = connection[0] === endpoint ? connection[1] : connection[0];
-    const match = /^([^:]+):Q([0-7])$/.exec(other);
-    if (!match || Number(match[2]) !== index ||
-        (chipId !== null && chipId !== match[1])) return null;
-    chipId = match[1];
-  }
-  const chip = model.diagram.parts.find(
-    item => item.id === chipId && item.type === "hc595");
-  const hcWiring = chip ? hc595Wiring(chip) : null;
-  return hcWiring ? { chipId, mcuId: hcWiring.mcuId } : null;
-}
-
-async function configureSevenSegment(part, strict = true) {
-  const wiring = sevenSegmentWiring(part);
-  if (!wiring) {
-    if (strict) {
-      throw new Error(`${part.id} 的 a～dp 必须依次连接到同一颗 74HC595 的 Q0～Q7`);
-    }
-    return false;
-  }
-  const result = await post("/api/command", {
-    command: "seven_segment_config",
-    mcuId: wiring.mcuId,
-    activeHigh: part.attrs?.activeHigh !== false
-  });
-  setState(result);
-  return true;
-}
-
-async function configureAllSevenSegment(strict = true) {
-  const displays = model.diagram.parts.filter(
-    part => part.type === "seven-segment");
-  for (const display of displays) await configureSevenSegment(display, strict);
-}
-
-function formatW25Dump(offset, data) {
-  const rows = [];
-  for (let index = 0; index < data.length; index += 16) {
-    const bytes = data.slice(index, index + 16);
-    const hexBytes = bytes.map(value =>
-      value.toString(16).toUpperCase().padStart(2, "0")).join(" ");
-    const ascii = bytes.map(value =>
-      value >= 32 && value <= 126 ? String.fromCharCode(value) : ".").join("");
-    rows.push(`${hex(offset + index, 6)}  ${hexBytes.padEnd(47)}  ${ascii}`);
-  }
-  return rows.join("\n");
-}
-
-async function refreshW25Memory(part) {
-  if (!part || part.type !== "w25q" || model.w25RefreshPending) return;
-  const wiring = w25Wiring(part);
-  const dump = $("#w25Dump");
-  if (!wiring || !dump) return;
-  const capacity = Number(part.attrs?.capacity || 2097152);
-  let offset = Number(model.w25Offsets.get(part.id) || 0);
-  offset = Math.max(0, Math.min(capacity - 1, offset));
-  offset = Math.floor(offset / 16) * 16;
-  const count = Math.min(256, capacity - offset);
-  const generation = ++model.w25RefreshGeneration;
-  model.w25RefreshPending = true;
-  try {
-    const result = await post("/api/command", {
-      command: "w25_read", mcuId: wiring.mcuId, offset, count
-    });
-    /*
-     * 请求发出后，用户可能已经切换器件或重新打开了示例。只允许当前一代请求
-     * 更新当前属性面板，避免旧 Flash 数据短暂或永久覆盖新实例的数据显示。
-     */
-    if (generation !== model.w25RefreshGeneration ||
-        model.selected !== part.id || $("#w25Dump") !== dump) return;
-    model.w25Offsets.set(part.id, offset);
-    const formatted = formatW25Dump(offset, result.data);
-    const selection = window.getSelection();
-    const selectingDump = selection && !selection.isCollapsed &&
-      ((selection.anchorNode && dump.contains(selection.anchorNode)) ||
-       (selection.focusNode && dump.contains(selection.focusNode)));
-    /*
-     * 每 200 ms 无条件改写 textContent 会销毁浏览器的文本选择。内容没变化时
-     * 不触碰 DOM；用户正在选择数据时即使内容变化也暂缓显示，松开选择后下次
-     * 轮询自然追上真实器件状态，复制操作因此不会被后台刷新打断。
-     */
-    if (dump.textContent !== formatted && !selectingDump) {
-      dump.textContent = formatted;
-    }
-    const offsetInput = $("#w25Offset");
-    if (offsetInput) offsetInput.value = String(offset);
-    const pageText = $("#w25Page");
-    if (pageText) {
-      const totalPages = Math.ceil(capacity / 256);
-      pageText.textContent =
-        `第 ${Math.floor(offset / 256) + 1} / ${totalPages} 页`;
-    }
-  } catch (error) {
-    if (generation === model.w25RefreshGeneration &&
-        model.selected === part.id && $("#w25Dump") === dump) {
-      dump.textContent = `读取失败：${error.message}`;
-    }
-  } finally {
-    if (generation === model.w25RefreshGeneration) {
-      model.w25RefreshPending = false;
-    }
-  }
 }
 
 function setState(state) {
@@ -1034,113 +768,34 @@ $("#flashGrid").addEventListener("click", async event => {
   }
 });
 
-function connectedMcuPin(part) {
-  const endpoint = `${part.id}:${part.type === "led" ? "A" : "1"}`;
+function connectedMcuPin(part, pinName) {
+  const endpoint = `${part.id}:${pinName}`;
   const connection = model.diagram.connections.find(c => c.includes(endpoint));
   if (!connection) return null;
   const other = connection.find(value => value !== endpoint && /:GP\d$/.test(value));
   if (!other) return null;
-  const [mcuId, pinName] = other.split(":");
+  const [mcuId, mcuPinName] = other.split(":");
   return {
     mcuId,
-    gpio: Number(pinName.match(/GP(\d)$/)[1]),
+    gpio: Number(mcuPinName.match(/GP(\d)$/)[1]),
     state: model.states.get(mcuId)
   };
 }
 
 function updatePartsFromState() {
   if (model.states.size === 0) return;
+  const context = deviceContext();
   for (const part of model.diagram.parts) {
     const el = document.querySelector(`.part[data-id="${CSS.escape(part.id)}"]`);
     if (!el) continue;
-    const connection = connectedMcuPin(part);
-    if (part.type === "i2c-lcd1602") {
-      const wiring = lcd1602Wiring(part);
-      const lines = wiring
-        ? model.states.get(wiring.mcuId)?.lcd1602?.lines : null;
-      if (lines) {
-        el.querySelectorAll(".lcd-line").forEach((line, index) => {
-          const text = (lines[index] || "").padEnd(16).slice(0, 16);
-          if (line.dataset.text !== text) {
-            line.dataset.text = text;
-            line.innerHTML = lcdLineHtml(text);
-          }
-        });
-      }
-    }
-    if (part.type === "seven-segment") {
-      const wiring = sevenSegmentWiring(part);
-      const segments = wiring
-        ? model.states.get(wiring.mcuId)?.sevenSegment?.segments : null;
-      if (segments !== null && segments !== undefined) {
-        ["a", "b", "c", "d", "e", "f", "g", "dp"].forEach(
-          (name, bit) => el.querySelector(`[data-segment="${name}"]`)
-            ?.classList.toggle("on", (segments & (1 << bit)) !== 0));
-      }
-    }
-    if (part.type === "led" && connection?.state) {
-      const { gpio, state } = connection;
-      const duty = state.pinDuty?.[gpio] ?? ((state.gpio >> gpio) & 1);
-      el.classList.toggle("lit", duty > 0.01);
-      el.querySelector(".part-body").style.opacity =
-        String(0.22 + Math.pow(duty, 0.55) * 0.78);
-    }
-  }
-  for (const mcu of mcuParts()) {
-    const state = model.states.get(mcu.id);
-    if (!state) continue;
-    document.querySelectorAll(
-      `.part[data-id="${CSS.escape(mcu.id)}"] .pin[data-pin^='GP']`
-    ).forEach(pin => {
-      const number = Number(pin.dataset.pin.slice(2));
-      const input = number === 3 ||
-        (state.tris & (1 << number)) !== 0;
-      const high = (state.gpio & (1 << number)) !== 0;
-      pin.classList.toggle("gpio-input", input);
-      pin.classList.toggle("gpio-output", !input);
-      pin.classList.toggle("gpio-high", high);
-      pin.classList.toggle("gpio-low", !high);
-      pin.title = `${pin.dataset.pin}: ${input ? "输入" : "输出"}，电平 ${
-        high ? "高" : "低"}`;
-    });
-  }
-  updateBuzzer();
-}
-
-function updateBuzzer() {
-  const buzzer = model.diagram.parts.find(p => p.type === "buzzer");
-  const connection = buzzer ? connectedMcuPin(buzzer) : null;
-  const frequency = connection?.state
-    ? connection.state.pinFrequency?.[connection.gpio] || 0 : 0;
-  if (frequency > 30 && frequency < 12000 && model.running) {
-    if (!model.audio) {
-      const WebAudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!WebAudioContext) return;
-      model.audio = new WebAudioContext();
-    }
-    if (!model.oscillator) {
-      model.oscillator = model.audio.createOscillator();
-      model.gain = model.audio.createGain();
-      model.gain.gain.value = 0.045;
-      model.oscillator.connect(model.gain).connect(model.audio.destination);
-      model.oscillator.start();
-    }
-    model.oscillator.frequency.setTargetAtTime(
-      frequency, model.audio.currentTime, 0.01);
-  } else if (model.oscillator) {
-    model.oscillator.stop(); model.oscillator = null; model.gain = null;
+    deviceDefinition(part.type).update?.(context, part, el);
   }
 }
 
 async function loadDiagram(diagram, name = "电路", diagramPath = null) {
   pause();
   const previousSelection = model.selected;
-  /*
-   * 使旧电路尚未完成的 W25Q 读取立即失效，并清掉旧属性面板。否则重新打开
-   * 示例后，后端虽已创建新 Flash，右侧仍可能保留上一个实例的内存快照。
-   */
-  model.w25RefreshGeneration++;
-  model.w25RefreshPending = false;
+  notifyDevices(deviceContext(), "diagramUnload");
   $("#partInspector").innerHTML = "<p>选择器件以查看和编辑属性。</p>";
   model.diagram = diagram;
   model.diagramName = name;
@@ -1150,7 +805,6 @@ async function loadDiagram(diagram, name = "电路", diagramPath = null) {
   model.activeMcuId = null;
   model.executionStarted = false;
   model.breakpoints.clear();
-  model.w25Offsets.clear();
   model.selectedConnection = null;
   model.diagram.parts ||= [];
   model.diagram.connections ||= [];
@@ -1198,15 +852,16 @@ async function loadDiagram(diagram, name = "电路", diagramPath = null) {
   try {
     const states = await Promise.all(loads);
     states.filter(Boolean).forEach(setState);
-    await configureAllW25(true);
-    await configureAllLcd1602(true);
-    await configureAllHc595(true);
-    await configureAllSevenSegment(true);
+    await configureDevices(deviceContext(), true);
     const loaded = states.filter(Boolean).length;
-    const flashCount =
-      model.diagram.parts.filter(part => part.type === "w25q").length;
-    message(`已加载 ${loaded} 个 MCU 固件${
-      flashCount ? `和 ${flashCount} 个W25Q` : ""}`);
+    const summaries = [];
+    for (const type of new Set(model.diagram.parts.map(part => part.type))) {
+      const definition = deviceDefinition(type);
+      const parts = model.diagram.parts.filter(part => part.type === type);
+      const summary = definition.loadSummary?.(parts);
+      if (summary) summaries.push(summary);
+    }
+    message(`已加载 ${loaded} 个 MCU 固件${summaries.join("")}`);
   } catch (error) {
     message(`固件加载失败：${error.message}`, true);
   }
@@ -1223,19 +878,16 @@ function pause() {
   model.running = false;
   $("#runState").textContent = "已暂停";
   $("#runState").className = "status paused";
-  updateBuzzer();
+  updatePartsFromState();
 }
 
 async function prepareFirstExecution() {
   if (model.executionStarted) return;
   /*
-   * 属性面板写入是运行期调试操作。若固件还一条指令都没有执行，首次运行或
-   * 单步必须从电路文件定义的 Flash 初值开始，不能让预运行调试数据参与 NOR
-   * 页编程的按位与运算并破坏示例结果。
+   * 属性面板操作可能改变运行期状态。固件首次运行或单步前，让各器件自行
+   * 恢复电路文件定义的上电配置，避免调试操作污染固件看到的初始环境。
    */
-  model.w25RefreshGeneration++;
-  model.w25RefreshPending = false;
-  await configureAllW25(true);
+  await configureDevices(deviceContext(), true);
   model.executionStarted = true;
 }
 
@@ -1249,7 +901,6 @@ $("#runBtn").addEventListener("click", async () => {
     model.lastFrame = performance.now();
     $("#runState").textContent = "运行中";
     $("#runState").className = "status running";
-    if (model.audio?.state === "suspended") await model.audio.resume();
   } catch (error) {
     message(error.message, true);
   }
@@ -1268,31 +919,28 @@ $("#stepBtn").addEventListener("click", async () => {
 });
 $("#resetBtn").addEventListener("click", async () => {
   pause();
-  model.w25RefreshGeneration++;
-  model.w25RefreshPending = false;
+  notifyDevices(deviceContext(), "diagramUnload");
   try {
     await Promise.all([...model.states.entries()]
       .filter(([, state]) => state.loaded)
       .map(([id]) => command("reset", {}, id)));
-    /*
-     * “复位程序”表示把电路恢复到 diagram.json 描述的启动状态。W25Q 的运行时
-     * 编辑不能成为新的上电初值，否则 NOR Flash 中已写成 0 的位会令示例固件
-     * 无法再次写回 HelloWorld。重新配置后，固件会从干净的初始数据重新运行。
-     */
-    await configureAllW25(true);
+    /* 复位后由各器件重新应用 diagram.json 中属于自己的上电配置。 */
+    await configureDevices(deviceContext(), true);
     model.executionStarted = false;
-    /*
-     * 复位期间动画帧仍可能发起查看器读取；配置完成后再次换代，保证最终刷新
-     * 一定读取重建后的 Flash，而不是复位过程中的过渡状态。
-     */
-    model.w25RefreshGeneration++;
-    model.w25RefreshPending = false;
-    const selectedFlash = model.diagram.parts.find(
-      part => part.id === model.selected && part.type === "w25q");
-    if (selectedFlash) await refreshW25Memory(selectedFlash);
     message("程序和外设已复位");
   } catch (error) { message(error.message, true); }
 });
+
+/*
+ * 器件只能通过这个受控上下文访问电路和通用服务。新增器件无需从 app.js
+ * 导入私有变量，也不会反向形成循环依赖。
+ */
+function deviceContext() {
+  return {
+    $, model, post, message, hex, mcuParts, setState, renderAll,
+    recordHistory, showPartInspector, selectActiveMcu, connectedMcuPin
+  };
+}
 
 async function frame(now) {
   const elapsed = Math.min(0.1, (now - model.lastFrame) / 1000);
@@ -1327,185 +975,41 @@ async function frame(now) {
       }
     }
   }
-  const selectedPart = model.diagram.parts.find(
-    part => part.id === model.selected && part.type === "w25q");
-  if (selectedPart && now - model.w25LastRefresh >= 200) {
-    model.w25LastRefresh = now;
-    refreshW25Memory(selectedPart);
-  }
+  notifyDevices(deviceContext(), "frame", now);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
 function showPartInspector(part) {
-  const attrs = part.attrs || (part.attrs = {});
-  const firstMcu = mcuParts()[0];
-  const firmware = attrs.firmware ||
-    (part === firstMcu ? model.diagram.firmware || "" : "");
+  const context = deviceContext();
+  const definition = deviceDefinition(part.type);
   $("#partInspector").innerHTML = `
     <div class="property-row"><label>ID</label><input id="propId" value="${part.id}"></div>
     <div class="property-row"><label>类型</label><input value="${part.type}" disabled></div>
-    ${part.type === "led" ? `<div class="property-row"><label>颜色</label>
-      <select id="propColor"><option>red</option><option>green</option><option>blue</option><option>yellow</option></select></div>` : ""}
-    ${isMcuType(part.type) ? `<div class="property-row"><label>HEX 固件</label>
-      <input id="propFirmware" value="${firmware}" disabled>
-      <button id="propHexBtn" type="button">为 ${part.id} 设置 HEX</button>
-    </div>` : ""}
-    ${part.type === "i2c-lcd1602" ? `
-      <div class="property-row"><label>I²C address</label>
-        <select id="propLcdAddress">
-          <option value="39">0x27</option>
-          <option value="63">0x3F</option>
-        </select>
-      </div>` : ""}
-    ${part.type === "w25q" ? `
-      <div class="property-row"><label>容量</label>
-        <select id="propW25Capacity">${W25_CAPACITIES.map(([value, label]) =>
-          `<option value="${value}">${label}</option>`).join("")}</select>
-      </div>
-      <div class="property-row">
-        <label>写入地址0的数据（HEX）</label>
-        <textarea id="propW25InitialData" name="w25-initial-${part.id}"
-          rows="3" autocomplete="new-password"
-          spellcheck="false" placeholder="例如：48 65 6C 6C 6F">${
-          attrs.data || ""}</textarea>
-        <button id="w25Write" type="button">写入</button>
-      </div>
-      <div class="property-row"><label>数据查看器</label>
-        <div class="w25-page-row">
-          <button id="w25Prev" type="button">上一页</button>
-          <span id="w25Page">第 1 页</span>
-          <button id="w25Next" type="button">下一页</button>
-        </div>
-        <div class="w25-jump-row">
-          <input id="w25Offset" type="number" min="0" step="256" value="0">
-          <button id="w25Go" type="button">跳转</button>
-        </div>
-        <pre id="w25Dump" class="w25-dump">等待读取……</pre>
-      </div>` : ""}
-    <div class="property-row"><label>位置</label><input id="propPosition" value="${part.left}, ${part.top}" disabled></div>`;
+    ${definition.inspectorHtml?.(context, part) || ""}
+    <div class="property-row"><label>位置</label>
+      <input id="propPosition" value="${part.left}, ${part.top}" disabled></div>`;
   $("#propId").addEventListener("change", async event => {
-    const old = part.id, value = event.target.value.trim();
-    if (!value || model.diagram.parts.some(p => p !== part && p.id === value)) {
-      event.target.value = old; return;
+    const oldId = part.id;
+    const newId = event.target.value.trim();
+    if (!newId || model.diagram.parts.some(item =>
+      item !== part && item.id === newId)) {
+      event.target.value = oldId;
+      return;
     }
-    part.id = value;
-    if (part.type === "w25q") {
-      const oldOffset = model.w25Offsets.get(old);
-      model.w25Offsets.delete(old);
-      if (oldOffset !== undefined) model.w25Offsets.set(value, oldOffset);
-    }
-    model.diagram.connections.forEach(c => {
-      c[0] = c[0].replace(`${old}:`, `${value}:`);
-      c[1] = c[1].replace(`${old}:`, `${value}:`);
+    part.id = newId;
+    model.diagram.connections.forEach(connection => {
+      connection[0] = connection[0].replace(`${oldId}:`, `${newId}:`);
+      connection[1] = connection[1].replace(`${oldId}:`, `${newId}:`);
     });
-    if (isMcuType(part.type)) {
-      const oldState = model.states.get(old);
-      model.states.delete(old);
-      if (oldState) model.states.set(value, { ...oldState, mcuId: value });
-      const oldBreakpoints = model.breakpoints.get(old);
-      model.breakpoints.delete(old);
-      if (oldBreakpoints) model.breakpoints.set(value, oldBreakpoints);
-      if (model.activeMcuId === old) model.activeMcuId = value;
-      if (attrs.firmware) {
-        try {
-          setState(await post("/api/load", {
-            mcuId: value,
-            firmware: attrs.firmware,
-            device: mcuDevice(part)
-          }));
-        } catch (error) {
-          message(error.message, true);
-        }
-      }
-    }
-    model.selectedIds.delete(old);
-    model.selectedIds.add(value);
-    model.selected = value; renderAll();
+    await definition.rename?.(context, part, oldId);
+    model.selectedIds.delete(oldId);
+    model.selectedIds.add(newId);
+    model.selected = newId;
+    renderAll();
     recordHistory();
   });
-  const color = $("#propColor");
-  if (color) {
-    color.value = attrs.color || "red";
-    color.addEventListener("change", e => {
-      attrs.color = e.target.value;
-      renderAll();
-      recordHistory();
-    });
-  }
-  const lcdAddress = $("#propLcdAddress");
-  if (lcdAddress) {
-    lcdAddress.value = String(attrs.address ?? 0x27);
-    lcdAddress.addEventListener("change", async event => {
-      attrs.address = Number(event.target.value);
-      recordHistory();
-      renderAll();
-      try {
-        await configureLcd1602(part, true);
-      } catch (error) {
-        message(error.message, true);
-      }
-    });
-  }
-  const hexButton = $("#propHexBtn");
-  if (hexButton) {
-    hexButton.addEventListener("click", () => {
-      model.hexTargetId = part.id;
-      selectActiveMcu(part.id);
-      $("#hexInput").value = "";
-      $("#hexInput").click();
-    });
-  }
-  const capacitySelect = $("#propW25Capacity");
-  if (capacitySelect) {
-    $("#propW25InitialData").value = attrs.data || "";
-    capacitySelect.value = String(attrs.capacity || 2097152);
-    capacitySelect.addEventListener("change", async event => {
-      attrs.capacity = Number(event.target.value);
-      try {
-        await configureW25(part, true);
-        model.w25Offsets.set(part.id, 0);
-        recordHistory();
-        renderAll();
-        showPartInspector(part);
-        message(`${part.id}容量已更新，存储内容已按初始数据重新装载`);
-      } catch (error) {
-        message(error.message, true);
-      }
-    });
-    const movePage = async delta => {
-      const capacity = Number(attrs.capacity || 2097152);
-      const current = Number(model.w25Offsets.get(part.id) || 0);
-      model.w25Offsets.set(part.id,
-        Math.max(0, Math.min(capacity - 1, current + delta)));
-      await refreshW25Memory(part);
-    };
-    $("#w25Prev").addEventListener("click", () => movePage(-256));
-    $("#w25Next").addEventListener("click", () => movePage(256));
-    $("#w25Go").addEventListener("click", async () => {
-      model.w25Offsets.set(part.id, Number($("#w25Offset").value || 0));
-      await refreshW25Memory(part);
-    });
-    $("#w25Write").addEventListener("click", async () => {
-      const data = $("#propW25InitialData").value.trim();
-      const wiring = w25Wiring(part);
-      if (!wiring) return message(`${part.id}的SPI连线不完整`, true);
-      try {
-        await post("/api/command", {
-          command: "w25_write",
-          mcuId: wiring.mcuId,
-          offset: 0,
-          data
-        });
-        model.w25Offsets.set(part.id, 0);
-        await refreshW25Memory(part);
-        message(`${part.id}已从地址0写入输入数据`);
-      } catch (error) {
-        message(error.message, true);
-      }
-    });
-    refreshW25Memory(part);
-  }
+  definition.bindInspector?.(context, part);
 }
 
 document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => {
@@ -1536,11 +1040,7 @@ $("#deleteBtn").addEventListener("click", () => {
     !connection.slice(0, 2).some(endpoint => [...deletedIds].some(
       id => endpoint.startsWith(id + ":"))));
   for (const part of deleted) {
-    if (isMcuType(part.type)) {
-      model.states.delete(part.id);
-      model.breakpoints.delete(part.id);
-    }
-    if (part.type === "w25q") model.w25Offsets.delete(part.id);
+    deviceDefinition(part.type).remove?.(deviceContext(), part);
   }
   if (deletedIds.has(model.activeMcuId)) {
     model.activeMcuId = mcuParts()[0]?.id || null;
