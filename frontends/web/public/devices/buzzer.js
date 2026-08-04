@@ -43,11 +43,18 @@ export default {
       if (!oscillator) {
         oscillator = audio.createOscillator();
         gain = audio.createGain();
-        gain.gain.value = 0.045;
+        /*
+         * PIC 的 GPIO 输出是高、低电平快速切换的方波。浏览器振荡器默认生成
+         * 正弦波，会丢失真实蜂鸣器声音中较明显的奇次谐波，听起来过于柔和。
+         * 这里直接合成方波，与 SDL 前端和实际数字引脚驱动的听感保持一致。
+         */
+        oscillator.type = "square";
+        gain.gain.value = 0.06;
         oscillator.connect(gain).connect(audio.destination);
         oscillator.start();
       }
-      oscillator.frequency.setTargetAtTime(frequency, audio.currentTime, 0.01);
+      /* GPIO 方波频率会立即改变，不做会产生滑音听感的指数平滑。 */
+      oscillator.frequency.setValueAtTime(frequency, audio.currentTime);
     } else if (oscillator) {
       oscillator.stop();
       oscillator = null;

@@ -24,6 +24,16 @@
 static Pic10Cpu cpu;
 static HexImage image;
 static bool loaded;
+
+enum {
+    /*
+     * Web 音频只播放 30 Hz 以上的方波，其最长半周期小于 17 ms。
+     * 连续 20 ms 没有新边沿即可确认 GPIO 已停止输出音调；及时把频率清零，
+     * 才能保留固件在相邻音符之间主动插入的静音，而不是把旧音高保持到下一音。
+     */
+    PIN_FREQUENCY_TIMEOUT_CYCLES = 20000
+};
+
 static uint64_t last_edge_cycle[4];
 static double pin_frequency[4];
 static double pin_duty[4];
@@ -365,6 +375,11 @@ static void execute_cycles(uint64_t requested)
         for (pin = 0; pin < 4; ++pin) {
             pin_duty[pin] =
                 (double)high_cycles[pin] / (double)measured_cycles;
+            if (last_edge_cycle[pin] != 0 &&
+                cpu.cycles - last_edge_cycle[pin] >
+                    PIN_FREQUENCY_TIMEOUT_CYCLES) {
+                pin_frequency[pin] = 0.0;
+            }
         }
     }
 }
