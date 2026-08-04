@@ -6,6 +6,7 @@
 #include "picemu/sim/devices/seven_segment.h"
 #include "picemu/sim/devices/max7219.h"
 #include "picemu/sim/devices/w25q.h"
+#include "picemu/sim/devices/ws2812.h"
 
 #include <inttypes.h>
 #include <stdbool.h>
@@ -51,6 +52,9 @@ static bool max7219_attached;
 static unsigned max7219_data_pin;
 static unsigned max7219_clock_pin;
 static unsigned max7219_load_pin;
+static SimWs2812 ws2812;
+static bool ws2812_attached;
+static unsigned ws2812_data_pin;
 
 static char *next_field(char **cursor);
 
@@ -137,6 +141,15 @@ static void print_state(bool include_flash)
         printf("],\"intensity\":%u,\"scanLimit\":%u,\"shutdown\":%s}",
                max7219.intensity, max7219.scan_limit,
                max7219.shutdown ? "true" : "false");
+    }
+    if (ws2812_attached) {
+        fputs(",\"ws2812\":{\"colors\":[", stdout);
+        for (i = 0; i < ws2812.led_count; ++i) {
+            if (i != 0) putchar(',');
+            printf("[%u,%u,%u]", ws2812.colors[i][0],
+                   ws2812.colors[i][1], ws2812.colors[i][2]);
+        }
+        fputs("]}", stdout);
     }
 
     fputs(",\"stack\":[", stdout);
@@ -282,16 +295,28 @@ static void update_max7219_lines(void)
         (gpio & (1u << max7219_load_pin)) != 0);
 }
 
+static void update_ws2812_line(void)
+{
+    if (ws2812_attached) {
+        sim_ws2812_set_input(&ws2812,
+            (pic10_gpio_value(&cpu) & (1u << ws2812_data_pin)) != 0);
+    }
+}
+
 static unsigned step_cpu(void)
 {
     unsigned consumed;
     drive_w25q_miso();
     drive_lcd1602_pullups();
     consumed = pic10_step_cycles(&cpu);
+    if (ws2812_attached) {
+        ws2812.base.ops->tick(&ws2812.base, consumed, 1000000u);
+    }
     update_w25q_lines();
     update_lcd1602_lines();
     update_hc595_lines();
     update_max7219_lines();
+    update_ws2812_line();
     return consumed;
 }
 
@@ -508,6 +533,28 @@ static void configure_max7219(char **cursor)
     print_state(false);
 }
 
+static void configure_ws2812(char **cursor)
+{
+    char *pin_text = next_field(cursor);
+    char *count_text = next_field(cursor);
+    unsigned pin, count;
+    if (pin_text == NULL || count_text == NULL) {
+        print_error("WS2812 configuration parameters are incomplete");
+        return;
+    }
+    pin = (unsigned)strtoul(pin_text, NULL, 0);
+    count = (unsigned)strtoul(count_text, NULL, 0);
+    if (pin > 3u || count == 0 || count > SIM_WS2812_MAX_LEDS) {
+        print_error("Invalid WS2812 GPIO pin or LED count");
+        return;
+    }
+    sim_ws2812_init(&ws2812, "ws2812", count);
+    ws2812_data_pin = pin;
+    ws2812_attached = true;
+    update_ws2812_line();
+    print_state(false);
+}
+
 static void print_w25q_data(char **cursor)
 {
     char *offset_text = next_field(cursor);
@@ -630,6 +677,7 @@ int main(void)
                 hc595_attached = false;
                 seven_segment_attached = false;
                 max7219_attached = false;
+                ws2812_attached = false;
                 loaded = true;
                 print_state(true);
             }
@@ -661,6 +709,10 @@ int main(void)
             if (max7219_attached) {
                 max7219.base.ops->reset(&max7219.base);
                 update_max7219_lines();
+            }
+            if (ws2812_attached) {
+                ws2812.base.ops->reset(&ws2812.base);
+                update_ws2812_line();
             }
             print_state(false);
         } else if (strcmp(command, "step") == 0) {
@@ -703,6 +755,8 @@ int main(void)
             configure_hc595(&cursor);
         } else if (strcmp(command, "max7219_config") == 0) {
             configure_max7219(&cursor);
+        } else if (strcmp(command, "ws2812_config") == 0) {
+            configure_ws2812(&cursor);
         } else {
             print_error("未知的Web后端命令");
         }

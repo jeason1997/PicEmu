@@ -83,11 +83,14 @@ function pinKey(partId, pin) { return `${partId}:${pin}`; }
 function snap(value) { return Math.round(value / SNAP_SIZE) * SNAP_SIZE; }
 function stageX(worldX) { return worldX + ORIGIN_X; }
 function stageY(worldY) { return worldY + ORIGIN_Y; }
-function partSize(type) {
-  return deviceDefinition(type).size;
+function partSize(part) {
+  const definition = deviceDefinition(part.type);
+  return typeof definition.size === "function"
+    ? definition.size(part)
+    : definition.size;
 }
 function partTopLeft(part) {
-  const size = partSize(part.type);
+  const size = partSize(part);
   if (deviceDefinition(part.type).positionMode === "top-left") {
     return { left: part.left, top: part.top };
   }
@@ -180,7 +183,7 @@ function devicePortSide(part) {
     if (other) {
       const ownCenter = part.left;
       const otherPosition = partTopLeft(other);
-      const otherSize = partSize(other.type);
+      const otherSize = partSize(other);
       const otherCenter = otherPosition.left + otherSize.width / 2;
       return otherCenter < ownCenter ? "left" : "right";
     }
@@ -189,7 +192,7 @@ function devicePortSide(part) {
 }
 
 function devicePortYOffset(part) {
-  return partSize(part.type).height / 2;
+  return partSize(part).height / 2;
 }
 
 function renderPart(part) {
@@ -242,16 +245,17 @@ function pinPoint(endpoint) {
   if (definition.positionMode === "top-left") {
     const pin = definition.pins.find(item => item.name === pinName);
     if (!pin) return null;
-    const width = definition.size.width;
+    const size = partSize(part);
+    const width = size.width;
     return {
       x: stageX(part.left) + (pin.side === "left" ? -6 : width + 6),
       y: stageY(part.top) + pin.top + 12,
       side: pin.side,
       top: stageY(part.top),
-      bottom: stageY(part.top) + definition.size.height
+      bottom: stageY(part.top) + size.height
     };
   }
-  const size = partSize(part.type);
+  const size = partSize(part);
   const side = devicePortSide(part);
   return {
     x: stageX(part.left) +
@@ -540,7 +544,7 @@ stageViewport.addEventListener("pointerdown", event => {
     if (Math.abs(x - start.x) >= 3 || Math.abs(y - start.y) >= 3) {
       for (const part of model.diagram.parts) {
         const position = partTopLeft(part);
-        const size = partSize(part.type);
+        const size = partSize(part);
         if (position.left <= box.right &&
             position.left + size.width >= box.left &&
             position.top <= box.bottom &&
@@ -609,7 +613,7 @@ function fitDiagram() {
   }
   let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
   for (const part of model.diagram.parts) {
-    const size = partSize(part.type);
+    const size = partSize(part);
     const position = partTopLeft(part);
     minX = Math.min(minX, position.left);
     minY = Math.min(minY, position.top);

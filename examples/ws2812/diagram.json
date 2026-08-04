@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "clockHz": 4000000,
+  "firmware": "examples/ws2812/build/firmware.hex",
+  "parts": [
+    {
+      "id": "mcu",
+      "type": "pic10f200",
+      "left": 300,
+      "top": 180,
+      "attrs": {
+        "firmware": "examples/ws2812/build/firmware.hex"
+      }
+    },
+    {
+      "id": "matrix",
+      "type": "ws2812",
+      "left": 680,
+      "top": 200,
+      "attrs": {
+        "rows": 8,
+        "cols": 8,
+        "wiring": "Z"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "mcu:GP0",
+      "matrix:DIN",
+      "green",
+      []
+    ]
+  ]
+}

@@ -34,6 +34,7 @@ SIM_SOURCES := \
 	src/sim/devices/seven_segment.c \
 	src/sim/devices/max7219.c \
 	src/sim/devices/led_matrix_8x8.c \
+	src/sim/devices/ws2812.c \
 	src/sim/devices/i2c_lcd1602.c \
 	src/sim/devices/w25q.c \
 	src/sim/board.c
@@ -52,7 +53,8 @@ SDL_FRONTEND_SOURCES := \
 	frontends/sdl/parts/button.c \
 	frontends/sdl/parts/buzzer.c \
 	frontends/sdl/parts/max7219.c \
-	frontends/sdl/parts/led_matrix_8x8.c
+	frontends/sdl/parts/led_matrix_8x8.c \
+	frontends/sdl/parts/ws2812.c
 
 SDL_PART_SOURCES := \
 	frontends/sdl/common/sdl_text.c \
@@ -63,7 +65,8 @@ SDL_PART_SOURCES := \
 	frontends/sdl/parts/button.c \
 	frontends/sdl/parts/buzzer.c \
 	frontends/sdl/parts/max7219.c \
-	frontends/sdl/parts/led_matrix_8x8.c
+	frontends/sdl/parts/led_matrix_8x8.c \
+	frontends/sdl/parts/ws2812.c
 
 CLI_OBJECTS := $(addprefix $(OBJECT_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(CLI_SOURCES:.c=.o))
@@ -79,13 +82,15 @@ SDL_PART_TEST_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
 	src/sim/devices/led.o src/sim/devices/button.o \
 	src/sim/devices/buzzer.o src/sim/devices/max7219.o \
 	src/sim/devices/led_matrix_8x8.o src/sim/config/circuit_config.o \
+	src/sim/devices/ws2812.o \
 	frontends/sdl/circuit/sdl_circuit.o $(SDL_PART_SOURCES:.c=.o))
 WEB_CORE_OBJECTS := $(addprefix $(OBJECT_DIR)/,\
 	frontends/web/backend/main.o $(CORE_SOURCES:.c=.o) \
 	src/sim/device.o src/sim/devices/w25q.o \
 	src/sim/devices/i2c_lcd1602.o src/sim/devices/hc595.o \
 	src/sim/devices/seven_segment.o src/sim/devices/max7219.o \
-	src/sim/devices/led_matrix_8x8.o)
+	src/sim/devices/led_matrix_8x8.o \
+	src/sim/devices/ws2812.o)
 
 ALL_OBJECTS := $(sort $(CLI_OBJECTS) $(SDL_OBJECTS) \
 	$(UNIT_TEST_OBJECTS) $(WEB_CORE_OBJECTS))

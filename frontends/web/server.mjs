@@ -242,6 +242,8 @@ async function api(request, response, url) {
       fields = [
         "max7219_config", value.dataPin, value.clockPin, value.loadPin
       ];
+    } else if (command === "ws2812_config") {
+      fields = ["ws2812_config", value.dataPin, value.count || 1];
     } else if (["reset", "state", "flash"].includes(command)) {
       fields = [command];
     } else {

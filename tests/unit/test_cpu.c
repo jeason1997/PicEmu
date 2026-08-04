@@ -11,6 +11,7 @@
 #include "picemu/sim/devices/button.h"
 #include "picemu/sim/devices/buzzer.h"
 #include "picemu/sim/devices/w25q.h"
+#include "picemu/sim/devices/ws2812.h"
 #include "picemu/sim/circuit_config.h"
 
 #include <stdio.h>
@@ -50,6 +51,55 @@ static uint8_t w25_receive_byte(SimW25q *flash)
         sim_w25q_set_lines(flash, false, false, false);
     }
     return value;
+}
+
+static void ws2812_send_byte(SimWs2812 *strip, uint8_t value)
+{
+    unsigned bit;
+    for (bit = 0; bit < 8; ++bit) {
+        sim_ws2812_set_input(strip, true);
+        strip->base.ops->tick(&strip->base,
+            (value & 0x80u) != 0 ? 2u : 1u, 1000000u);
+        sim_ws2812_set_input(strip, false);
+        strip->base.ops->tick(&strip->base, 2u, 1000000u);
+        value <<= 1;
+    }
+}
+
+static void test_ws2812_grb_and_latch(void)
+{
+    SimWs2812 strip;
+    sim_ws2812_init(&strip, "test strip", 1);
+    ws2812_send_byte(&strip, 0x34u);
+    ws2812_send_byte(&strip, 0x12u);
+    ws2812_send_byte(&strip, 0x56u);
+    CHECK(strip.colors[0][0] == 0); /* 复位间隔前不能提前显示。 */
+    strip.base.ops->tick(&strip.base, 300u, 1000000u);
+    CHECK(strip.colors[0][0] == 0x12u);
+    CHECK(strip.colors[0][1] == 0x34u);
+    CHECK(strip.colors[0][2] == 0x56u);
+}
+
+static void test_ws2812_partial_chain_update(void)
+{
+    SimWs2812 strip;
+    sim_ws2812_init(&strip, "two-pixel strip", 2);
+    strip.colors[1][0] = 0xAAu;
+    strip.colors[1][1] = 0xBBu;
+    strip.colors[1][2] = 0xCCu;
+
+    /* 只发送第一颗灯的数据，第二颗灯应像真实串联灯带一样保持原颜色。 */
+    ws2812_send_byte(&strip, 0x20u);
+    ws2812_send_byte(&strip, 0x40u);
+    ws2812_send_byte(&strip, 0x60u);
+    strip.base.ops->tick(&strip.base, 300u, 1000000u);
+
+    CHECK(strip.colors[0][0] == 0x40u);
+    CHECK(strip.colors[0][1] == 0x20u);
+    CHECK(strip.colors[0][2] == 0x60u);
+    CHECK(strip.colors[1][0] == 0xAAu);
+    CHECK(strip.colors[1][1] == 0xBBu);
+    CHECK(strip.colors[1][2] == 0xCCu);
 }
 
 static void test_w25q_spi_read(void)
@@ -609,6 +659,8 @@ int main(void)
     test_fast_countdown_loop();
     test_fast_xc8_postdecrement_loop();
     test_w25q_spi_read();
+    test_ws2812_grb_and_latch();
+    test_ws2812_partial_chain_update();
     test_w25q_spi_program();
 
     if (failures != 0) {
