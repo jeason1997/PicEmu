@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* 蜂鸣器模型记录方波边沿并估算频率，不包含任何 SDL 音频代码。 */
+/* 蜂鸣器模型记录方波边沿并估算频率，不包含任何前端音频代码。 */
 typedef struct {
     SimDevice base;
     bool active;

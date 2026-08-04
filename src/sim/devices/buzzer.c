@@ -24,7 +24,7 @@ static void buzzer_tick(SimDevice *device, uint64_t cycles,
     buzzer->cycles_since_edge += cycles;
     /*
      * 长时间没有边沿表示方波已经停止。固定高电平仍保留active状态，
-     * SDL可将它当成传统有源蜂鸣器处理。
+     * 前端可将它当成传统有源蜂鸣器处理。
      */
     if (buzzer->cycles_since_edge >
         (uint64_t)cycles_per_second * BUZZER_SIGNAL_TIMEOUT_MS / 1000u) {

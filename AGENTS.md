@@ -8,9 +8,8 @@
 
 - `src/AGENTS.md`：公共 C 核心、芯片、固件加载、虚拟器件与电路模型。
 - `examples/AGENTS.md`：示例目录、XC8 固件和电路文件。
-- `frontends/AGENTS.md`：SDL 与 Web 共享的电路布局和显示边界。
+- `frontends/AGENTS.md`：Web 电路布局和显示边界。
 - `frontends/web/AGENTS.md`：Web 前后端、交互和浏览器验证。
-- `frontends/sdl/AGENTS.md`：SDL 渲染、交互和共享仿真状态。
 - `ports/stm32f103/AGENTS.md`：STM32F103 构建、时钟、烧录和实板验证。
 - `fpga/AGENTS.md`：Tang Nano 1K 的 RTL、工具链、位流和实板验证。
 - `docs/AGENTS.md`：README 和主题文档的组织方式。
@@ -41,7 +40,7 @@ PicEmu 是供新手学习、固件验证和跨平台移植使用的 PIC10 系列
 - 公共核心使用 C11，并能够在 Linux 下通过 GCC 编译。
 - 模块按功能放入清晰的子目录，不把所有逻辑堆在 `src/`、`include/` 或某个
   前端主文件中。
-- SDL、Web 和 STM32 必须共享同一套 C 核心指令语义；FPGA 使用独立 RTL 核心，
+- Web 和 STM32 必须共享同一套 C 核心指令语义；FPGA 使用独立 RTL 核心，
   但不得为示例加入特殊指令行为。
 - 不允许针对某个示例固件在 CPU、FPGA 或平台层加入特殊处理。示例不能运行时，
   应修复缺失指令、外设模型或通用接口。
@@ -56,7 +55,7 @@ PicEmu 是供新手学习、固件验证和跨平台移植使用的 PIC10 系列
 ## 构建目录与工具链
 
 - 所有中间文件和最终产物必须进入专用 `build/`，不能混入源码目录。
-- 根目录 `make clean` 应清理受管理的命令行、SDL、Web、STM32 和 FPGA 构建
+- 根目录 `make clean` 应清理受管理的命令行、Web、STM32 和 FPGA 构建
   产物，不得遗留测试生成的空目录或临时文件。
 - 平台专用工具放在对应平台目录。
 - Linux/WSL 的 Makefile 或 Shell 脚本是统一构建逻辑的主入口。
@@ -74,9 +73,8 @@ PicEmu 是供新手学习、固件验证和跨平台移植使用的 PIC10 系列
 2. CPU 和虚拟器件单元测试；
 3. 示例固件 XC8 编译；
 4. 命令行和 Web 后端集成测试；
-5. SDL 器件测试；
-6. Web 实际浏览器交互测试；
-7. STM32 或 FPGA 修改对应的交叉编译、烧录和实板验证。
+5. Web 实际浏览器交互测试；
+6. STM32 或 FPGA 修改对应的交叉编译、烧录和实板验证。
 
 完成前至少执行 `git diff --check`。不得声称通过未执行的测试；受硬件或工具限制
 无法验证时，应明确说明未验证的部分。

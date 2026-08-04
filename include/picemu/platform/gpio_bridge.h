@@ -12,7 +12,7 @@ typedef enum {
 } PicPlatformPinMode;
 
 /*
- * 平台只需提供GPIO和微秒计时回调。核心中不包含STM32 HAL、SDL或操作
+ * 平台只需提供GPIO和微秒计时回调。核心中不包含STM32 HAL、Web或操作
  * 系统头文件，因此同一份核心源码可以由ARM GCC直接编译。
  */
 typedef struct {

@@ -13,7 +13,7 @@ const partsLayer = $("#partsLayer");
 const wires = $("#wires");
 /*
  * diagram.json 继续使用以电路为中心的普通坐标；画布内部额外增加一个很大的
- * 虚拟原点。这样既不破坏 SDL 共用的坐标，又能向四个方向持续平移。
+ * 虚拟原点。这样既保持电路文件中的世界坐标，又能向四个方向持续平移。
  */
 const STAGE_WIDTH = 12000;
 const STAGE_HEIGHT = 8000;

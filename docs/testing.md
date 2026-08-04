@@ -4,12 +4,11 @@
 
 ```sh
 make unit-test       # PIC核心、外设和电路网络，不依赖XC8
-make sdl-part-test   # SDL器件注册、属性、共享网络和多MCU装配
 make integration-test # 构建示例并验证命令行与Web C后端
-make test            # 执行以上全部测试
+make test            # 执行以上测试
 ```
 
-`make test` 需要 GCC、SDL2 开发包、MPLAB XC8 和
+`make test` 需要 GCC、MPLAB XC8 和
 `PIC10-12Fxxx_DFP`。只修改核心代码且本机没有XC8时，可以先运行
 `make unit-test`。
 
@@ -35,8 +34,7 @@ make stm32-host-test EXAMPLE=button
 - `led_chaser`：检查GP0～GP2流水输出顺序；
 - `playmusic`：检查GP2持续产生音乐方波边沿。
 
-Web后端测试还会验证加载、状态读取、单步、运行和断点协议。SDL测试会验证
-器件工厂、按键交互、公共网络以及两颗MCU使用独立状态。
+Web后端测试还会验证加载、状态读取、单步、运行和断点协议。
 
 ## 软件模拟器已实现
 
@@ -50,7 +48,6 @@ Web后端测试还会验证加载、状态读取、单步、运行和断点协�
 - Intel HEX和配置字加载；
 - 反汇编、跟踪、断点、转储、GPIO事件和VCD；
 - JSON电路网络、LED、按键、蜂鸣器及多MCU；
-- SDL缩放/平移和实时音频；
 - Web拖放、连线、框选、多选移动、批量删除、保存、断点和状态面板；
 - STM32 GPIO桥接和实时调度。
 
@@ -60,7 +57,7 @@ Web后端测试还会验证加载、状态读取、单步、运行和断点协�
 - 不模拟电压、温度、功耗、振荡误差和其他模拟电气特性；
 - MCLR尚未作为完整异步电路端点；
 - 没有ELF/DWARF源码级调试、条件断点和数据观察点；
-- Web/SDL尚未提供电阻、电源、显示屏、串行总线等复杂器件；
+- Web尚未提供电阻、电源、显示屏、串行总线等复杂器件；
 - JSON连接的第四项走线指令仍为预留字段，不能保存自定义折线路径；
 - FPGA核心是功能子集，不能用软件模拟器的完整功能列表判断RTL支持程度。
 

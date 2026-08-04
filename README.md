@@ -2,7 +2,7 @@
 
 PicEmu 是一个面向学习、验证和嵌入式移植的 PIC10 系列模拟器项目。核心使用
 C11 编写，可直接加载 MPLAB XC8 生成的 Intel HEX 固件；同一套 PIC CPU
-逻辑可以运行在命令行、SDL 桌面界面、Web 电路实验台和 STM32F103 上。
+逻辑可以运行在命令行、Web 电路实验台和 STM32F103 上。
 项目还包含一个独立的 Verilog PIC10F200 核心，可在 Tang Nano 1K FPGA
 上执行真实 PIC 固件。
 
@@ -14,13 +14,12 @@ C11 编写，可直接加载 MPLAB XC8 生成的 Intel HEX 固件；同一套 PI
 | 模块 | 主要用途 |
 |---|---|
 | 命令行模拟器 | 执行 HEX、跟踪指令、反汇编、断点、寄存器/RAM 转储、GPIO 事件和 VCD 波形 |
-| SDL 电路仿真器 | 根据 `diagram.json` 装配 PIC、LED、按键和蜂鸣器，实时交互和播放声音 |
 | Web 电路实验台 | 拖放器件、连线、多选编辑、加载/保存电路、运行/暂停/单步、查看寄存器、RAM、程序和 SPI Flash |
 | STM32F103 端口 | 把虚拟 PIC GPIO 映射到真实 STM32 引脚，在裸机环境实时运行 PIC 固件 |
 | Tang Nano 1K FPGA | 用 Verilog 实现 PIC10F200 核心，固件随位流保存并从片上 BSRAM 取指 |
 
-SDL 和 Web 共用相同的 `examples/*/diagram.json`。每颗 MCU 可以设置独立
-HEX，电路可包含多颗 PIC；器件模型、CPU 核心和前端界面彼此解耦，方便继续
+Web 使用 `examples/*/diagram.json` 描述电路。每颗 MCU 可以设置独立 HEX，
+电路可包含多颗 PIC；器件模型、CPU 核心和前端界面彼此解耦，方便继续
 增加芯片型号和外设。
 
 ## 快速开始
@@ -38,13 +37,6 @@ make
 make firmware
 ./build/picemu examples/blink/build/firmware.hex --cycles 2500000
 make test
-```
-
-运行 SDL 电路：
-
-```sh
-sudo apt install libsdl2-dev
-make run-sdl EXAMPLE=button
 ```
 
 启动 Web 电路实验台：
@@ -85,12 +77,11 @@ PicEmu/
 ├── include/picemu/         公共 C 接口
 ├── src/                    CPU、HEX、电路网络、虚拟器件和命令行实现
 ├── frontends/
-│   ├── sdl/                SDL2 桌面前端
 │   └── web/                Web 页面、本地服务和 C 调试后端
-├── examples/               PIC XC8 固件及共享电路图
+├── examples/               PIC XC8 固件及 Web 电路图
 ├── ports/stm32f103/        STM32F103 裸机端口
 ├── fpga/                   Tang Nano 1K Verilog 实现
-├── tests/                  单元、SDL、集成和 Web 后端测试
+├── tests/                  单元、集成和 Web 后端测试
 └── docs/                   分主题文档
 ```
 
@@ -103,7 +94,6 @@ PicEmu/
 - [PIC10F200/PIC10F202 引脚与型号差异](docs/pic10f200.md)
 - [在 Linux 下使用 XC8 编译固件](docs/firmware.md)
 - [命令行模拟器](docs/cli.md)
-- [SDL 界面与 JSON 电路配置](docs/sdl-circuits.md)
 - [Web 电路仿真器](docs/web-simulator.md)
 - [测试、已实现功能和限制](docs/testing.md)
 
@@ -112,8 +102,7 @@ PicEmu/
 PicEmu 的目标是数字逻辑和固件行为仿真，不是 SPICE：
 
 - 不模拟电源电压、温度、模拟波形或器件损坏；
-- Web 当前还内置可配置容量和实时查看数据的 W25Q SPI Flash；SDL 暂不显示
-  W25Q；
+- Web 当前还内置可配置容量和实时查看数据的 W25Q SPI Flash；
 - 没有 ELF/DWARF 源码级调试；
 - PIC10F204/206 比较器、更多 PIC 系列和复杂外设仍待扩展；
 - FPGA 核心目前只实现运行已有验证示例所需的 PIC10F200 指令和资源。

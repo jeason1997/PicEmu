@@ -6,7 +6,7 @@
 examples/<名称>/
 ├── main.c          XC8 源码
 ├── Makefile        调用 examples/common.mk
-├── diagram.json    SDL 和 Web 共用电路图
+├── diagram.json    Web 电路图
 ├── events.txt      可选，命令行 GPIO 输入事件
 └── build/          自动生成的 ELF/HEX 等文件
 ```
@@ -25,11 +25,10 @@ make firmware
 make -C examples/blink firmware
 ```
 
-在不同前端运行：
+运行命令行模拟器或 Web 前端：
 
 ```sh
 make run EXAMPLE=blink
-make run-sdl EXAMPLE=blink
 make run-web EXAMPLE=blink
 ```
 
@@ -58,7 +57,7 @@ Windows PowerShell 可以直接启动 Web、STM32 或 FPGA 流程：
 
 ## 平台说明
 
-- 命令行、SDL 和 Web 使用同一个 C PIC 核心，所有示例都应通过集成测试。
+- 命令行和 Web 使用同一个 C PIC 核心，所有示例都应通过集成测试。
 - STM32F103 在构建时把所选 HEX 转换为 C 数组，因此运行时不需要文件系统。
 - FPGA 会拒绝超出当前 64 字程序窗口或使用未实现指令的固件；当前已实板验证
   `blink`、`button` 和 `led_chaser`。详细范围见

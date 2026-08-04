@@ -18,7 +18,7 @@
  * Web前端使用的本地后端进程。
  *
  * Node服务通过stdin发送制表符分隔的命令，本进程在stdout输出一行JSON。
- * 使用独立进程而不是复制JavaScript版CPU，确保CLI、SDL、STM32和Web共享
+ * 使用独立进程而不是复制JavaScript版CPU，确保CLI、STM32和Web共享
  * 完全相同的PIC指令实现。
  */
 static Pic10Cpu cpu;

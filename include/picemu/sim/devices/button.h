@@ -5,7 +5,7 @@
 
 #include <stdbool.h>
 
-/* 按键模型可以由 SDL 鼠标或嵌入式平台的真实 GPIO 驱动。 */
+/* 按键模型可以由 Web 交互或嵌入式平台的真实 GPIO 驱动。 */
 typedef struct {
     SimDevice base;
     bool pressed;

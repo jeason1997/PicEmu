@@ -19,11 +19,6 @@ PicEmu/
 │   │   └── devices/       LED、按键、蜂鸣器模型
 │   ├── platform/          平台桥接实现
 │   └── cli/               命令行程序和VCD输出
-├── frontends/sdl/
-│   ├── app/               SDL应用入口、事件和时间调度
-│   ├── circuit/           配置到运行时电路的装配
-│   ├── parts/             各器件独立可视模块
-│   └── common/            位图文字等公共绘图代码
 ├── frontends/web/
 │   ├── public/
 │   │   ├── devices/       各器件完整的视图、协议、交互和生命周期模块
@@ -49,8 +44,8 @@ PicEmu/
 
 ```text
 PIC核心 -> SimMcu适配器 -> 仿真网络 <- 虚拟器件
-   ^                         ^
-HEX映像                 SDL电路装配 <- SDL应用
+   ^
+HEX映像
    ^
 HEX加载器 / 嵌入式C数组
 
@@ -60,28 +55,26 @@ XC8 HEX -> HEX转C -> STM32裸机程序
 XC8 HEX -> HEX转MEM -> FPGA BSRAM初值和位流
 ```
 
-- CPU核心不知道SDL、窗口、LED或JSON。
+- CPU核心不知道浏览器、LED或JSON。
 - 虚拟器件只通过引脚驱动和观察网络，不直接访问CPU内部状态。
-- SDL应用不写死器件和连线，电路由JSON决定。
 - Web负责编辑和调试交互，PIC指令仍由C后端执行，不在JavaScript中复制。
 - Web 应用入口只调度器件生命周期，不识别 W25Q、LCD、LED 等具体类型；
   Node 服务自动发现器件脚本，新增器件不需要修改注册表或页面入口。
-- STM32桥接不依赖SDL，可把虚拟PIC引脚映射到真实GPIO。
+- STM32桥接不依赖Web，可把虚拟PIC引脚映射到真实GPIO。
 - FPGA是独立RTL实现，不链接C模拟器；它通过相同XC8 HEX验证兼容行为。
 
 `SimBoard`只依赖`SimMcu`接口，不再保存`Pic10Cpu *`。PIC10通过
 `SimPic10Mcu`适配器提供复位、执行、引脚驱动和停止状态；后续PIC12、
 PIC16或其他架构可提供自己的适配器而无需修改网络层。
 
-电路容量统一定义在`include/picemu/sim/limits.h`。网络支持多个端点，
-SDL装配器会根据重复端点自动合并连接，不再限制为“一个主控引脚连接一个
-外设”。电路允许多颗MCU，每颗MCU拥有独立CPU和固件映像。
+电路容量统一定义在`include/picemu/sim/limits.h`。网络支持多个端点，不再限制为
+“一个主控引脚连接一个外设”。电路允许多颗MCU，每颗MCU拥有独立CPU和固件映像。
 
 ## 固件在各平台的流向
 
 | 平台 | 构建时 | 运行时 |
 |---|---|---|
-| 命令行/SDL | 从文件系统读取Intel HEX | `HexImage`保存在进程内存 |
+| 命令行 | 从文件系统读取Intel HEX | `HexImage`保存在进程内存 |
 | Web | Node按MCU启动C后端并传入HEX路径 | 每个后端保存独立`Pic10Cpu` |
 | STM32F103 | `hex2c`生成C常量并链接进固件 | 从STM32 Flash中的常量初始化CPU |
 | Tang Nano 1K | HEX转为12位MEM并写入位流 | FPGA配置时初始化片上BSRAM |
@@ -93,11 +86,10 @@ SDL装配器会根据重复端点自动合并连接，不再限制为“一个�
 
 1. 在 `core` 增加型号描述和差异外设；
 2. 尽量复用 Baseline CPU 指令执行器；
-3. 在 SDL `parts` 增加对应封装外观并注册新的 `type`；
-4. 在 Web 增加器件定义、外观和属性面板；
-5. 判断STM32通用适配器是否需要型号参数；
-6. FPGA若要支持该型号，需要独立扩展RTL，不能假设C代码会自动生效；
-7. 增加该型号的真实XC8固件、单元测试和前端测试。
+3. 在 Web 增加器件定义、外观和属性面板；
+4. 判断STM32通用适配器是否需要型号参数；
+5. FPGA若要支持该型号，需要独立扩展RTL，不能假设C代码会自动生效；
+6. 增加该型号的真实XC8固件、单元测试和前端测试。
 
 目前设备查找器接受PIC10F200和PIC10F202。PIC10F204/206仍未支持。
 
@@ -117,20 +109,3 @@ include/picemu/sim/devices/
 
 设备实现只包含自己的头文件。使用者也应只包含实际需要的设备头文件；
 新增屏幕或电机等器件时，不需要修改基础 `device.h`。
-
-SDL 可视化器件采用相同原则：
-
-```text
-frontends/sdl/parts/
-├── part.h / part.c          通用视图接口与分派
-├── registry.h / registry.c JSON类型到初始化函数的注册表
-├── led.h / led.c
-├── button.h / button.c
-├── buzzer.h / buzzer.c
-└── pic10.h / pic10.c
-```
-
-`SdlPart` 只保存通用操作表、模型指针和视图状态，不再包含具体器件枚举或
-设备 `union`。绘制、引脚查询、鼠标输入和音频输出均通过 `SdlPartOps`
-分派。新增 SDL 器件无需修改 `part.h` 或电路装配器，只需添加独立模块并
-在 `registry.c` 的内建设备表中登记一次。

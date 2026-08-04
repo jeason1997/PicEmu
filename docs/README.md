@@ -9,11 +9,9 @@
 - [示例说明](examples.md)：每个固件示例的用途、外设和平台兼容性。
 - [编译 PIC 固件](firmware.md)：在 Linux/WSL 中用 XC8 和 DFP 生成 HEX。
 
-## 桌面仿真
+## 软件仿真
 
 - [命令行模拟器](cli.md)：执行、反汇编、跟踪、断点、事件和 VCD。
-- [SDL 电路仿真器](sdl-circuits.md)：运行 JSON 电路、按键/蜂鸣器交互和
-  电路配置格式。
 - [Web 电路实验台](web-simulator.md)：可视编辑、调试面板、多 MCU 和保存。
 
 ## 端口与硬件

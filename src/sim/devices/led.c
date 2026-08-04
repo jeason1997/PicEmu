@@ -31,8 +31,8 @@ static void led_tick(SimDevice *device, uint64_t cycles,
     led->sample_cycles += cycles;
 
     /*
-     * 每个 SDL 帧附近更新一次亮度。窗口内高电平所占比例就是 PWM
-     * 占空比；使用整数计算，核心仿真层不依赖浮点或 SDL。
+     * 每个显示帧附近更新一次亮度。窗口内高电平所占比例就是 PWM
+     * 占空比；使用整数计算，核心仿真层不依赖浮点或前端实现。
      */
     if (led->sample_cycles >= window) {
         led->brightness = (uint8_t)(
