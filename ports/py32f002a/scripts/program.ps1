@@ -6,7 +6,7 @@ param(
     [ValidateSet("pic10f200", "pic10f202")]
     [string]$Device = "pic10f200",
 
-    [ValidateSet("Flash", "Reset")]
+    [ValidateSet("Flash", "Reset", "Debug")]
     [string]$Action = "Flash",
 
     [string]$OpenOcd,
@@ -23,6 +23,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$OpenOcdUrl = "https://gitee.com/puya-semiconductor/tools-and-software/raw/" +
+    "d503385bb4f9f5a51d7d5a5913d566fde9b66652/" +
+    "PY32_GCC/openocd-0.12.0.zip"
+$OpenOcdSha256 = "F2CB432E5C6AC65FA3B26F6A8441F3F54E53242335FBE5DA3B075CDF06152058"
+
 $PortRoot = Split-Path -Parent $PSScriptRoot
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PortRoot)
 $ExampleSource = Join-Path $RepoRoot "examples\$Example\main.c"
@@ -35,7 +40,7 @@ if (-not (Test-Path -LiteralPath $ExampleSource)) {
     throw "PIC example not found: $ExampleSource"
 }
 
-if (-not $NoBuild -and $Action -eq "Flash") {
+if (-not $NoBuild -and $Action -in @("Flash", "Debug")) {
     $Wsl = Get-Command "wsl.exe" -ErrorAction SilentlyContinue
     if ($null -eq $Wsl) {
         throw "wsl.exe was not found. Install WSL or build elsewhere and use -NoBuild."
@@ -57,20 +62,43 @@ if (-not $NoBuild -and $Action -eq "Flash") {
     }
 }
 
-if ($Action -eq "Flash" -and -not (Test-Path -LiteralPath $Firmware)) {
+if ($Action -in @("Flash", "Debug") -and
+    -not (Test-Path -LiteralPath $Firmware)) {
     throw "Firmware was not generated: $Firmware"
 }
 
 if ([string]::IsNullOrWhiteSpace($OpenOcd)) {
     $LocalOpenOcd = Join-Path $PortRoot "tools\openocd\bin\openocd.exe"
-    if (Test-Path -LiteralPath $LocalOpenOcd) {
-        $OpenOcd = $LocalOpenOcd
-    } else {
-        $Command = Get-Command "openocd.exe" -ErrorAction SilentlyContinue
-        if ($null -ne $Command) {
-            $OpenOcd = $Command.Source
+    if (-not (Test-Path -LiteralPath $LocalOpenOcd)) {
+        $ToolsRoot = Join-Path $PortRoot "tools"
+        $InstallRoot = Join-Path $ToolsRoot ".openocd-install"
+        $Archive = Join-Path $InstallRoot "openocd-0.12.0.zip"
+        $Expanded = Join-Path $InstallRoot "openocd-0.12.0"
+
+        if (Test-Path -LiteralPath $InstallRoot) {
+            Remove-Item -Recurse -Force -LiteralPath $InstallRoot
+        }
+        New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
+
+        Write-Host "OpenOCD for PY32F002A was not found. Downloading the official package..."
+        try {
+            Invoke-WebRequest -Uri $OpenOcdUrl -OutFile $Archive -UseBasicParsing
+            $ActualHash = (Get-FileHash -Algorithm SHA256 $Archive).Hash
+            if ($ActualHash -ne $OpenOcdSha256) {
+                throw "OpenOCD SHA-256 mismatch: expected $OpenOcdSha256, got $ActualHash"
+            }
+            Expand-Archive -LiteralPath $Archive -DestinationPath $InstallRoot
+            if (-not (Test-Path -LiteralPath (Join-Path $Expanded "bin\openocd.exe"))) {
+                throw "Downloaded OpenOCD package has an unexpected directory layout."
+            }
+            Move-Item -LiteralPath $Expanded -Destination (Join-Path $ToolsRoot "openocd")
+        } finally {
+            if (Test-Path -LiteralPath $InstallRoot) {
+                Remove-Item -Recurse -Force -LiteralPath $InstallRoot
+            }
         }
     }
+    $OpenOcd = $LocalOpenOcd
 }
 
 if ([string]::IsNullOrWhiteSpace($OpenOcd) -or
@@ -118,9 +146,14 @@ if ($Action -eq "Flash") {
     $OpenOcdArguments += @(
         "-c", "program {$FirmwareOpenOcd} verify reset exit"
     )
-} else {
+} elseif ($Action -eq "Reset") {
     Write-Host "Resetting PY32F002A through OpenOCD..."
     $OpenOcdArguments += @("-c", "init; reset run; shutdown")
+} else {
+    Write-Host "Starting the PY32F002A debug server on localhost:3333..."
+    Write-Host "Connect GDB with: target extended-remote localhost:3333"
+    Write-Host "Press Ctrl+C to stop the debug server."
+    $OpenOcdArguments += @("-c", "init; reset halt")
 }
 
 & $OpenOcd @OpenOcdArguments
@@ -128,4 +161,6 @@ if ($LASTEXITCODE -ne 0) {
     throw "OpenOCD failed (exit code $LASTEXITCODE)."
 }
 
-Write-Host "Done: action=$Action example=$Example device=$Device"
+if ($Action -ne "Debug") {
+    Write-Host "Done: action=$Action example=$Example device=$Device"
+}

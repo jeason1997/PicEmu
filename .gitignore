@@ -7,6 +7,10 @@
 # 各裸机平台的交叉编译和宿主测试产物
 /ports/*/build/
 
+# PY32F002A Windows OpenOCD 在首次使用时下载并校验。
+/ports/py32f002a/tools/openocd/
+/ports/py32f002a/tools/.openocd-install/
+
 # FPGA 综合、布局布线、仿真产生的中间文件和位流
 /fpga/build/
 /fpga/**/___module_export.json

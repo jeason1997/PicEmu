@@ -8,3 +8,5 @@
 - 烧录默认使用 CMSIS-DAP 和 OpenOCD，并允许通过环境变量覆盖工具与接口配置。
 - Windows 烧录由 `scripts/program.ps1` 负责参数转换和调用统一构建入口，不复制
   Makefile 中的编译规则。
+- Windows OpenOCD 不提交到仓库；脚本从普冉官方固定版本下载、校验后放入被
+  Git 忽略的本地工具缓存。
