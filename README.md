@@ -2,7 +2,7 @@
 
 PicEmu 是一个面向学习、验证和嵌入式移植的 PIC10 系列模拟器项目。核心使用
 C11 编写，可直接加载 MPLAB XC8 生成的 Intel HEX 固件；同一套 PIC CPU
-逻辑可以运行在命令行、Web 电路实验台和 STM32F103 上。
+逻辑可以运行在命令行、Web 电路实验台、STM32F103 和 PY32F002A 上。
 项目还包含一个独立的 Verilog PIC10F200 核心，可在 Tang Nano 1K FPGA
 上执行真实 PIC 固件。
 
@@ -16,6 +16,7 @@ C11 编写，可直接加载 MPLAB XC8 生成的 Intel HEX 固件；同一套 PI
 | 命令行模拟器 | 执行 HEX、跟踪指令、反汇编、断点、寄存器/RAM 转储、GPIO 事件和 VCD 波形 |
 | Web 电路实验台 | 拖放器件、连线、多选编辑、加载/保存电路、运行/暂停/单步、查看寄存器、RAM、程序和 SPI Flash |
 | STM32F103 端口 | 把虚拟 PIC GPIO 映射到真实 STM32 引脚，在裸机环境实时运行 PIC 固件 |
+| PY32F002A 端口 | 在低成本 Cortex-M0+ 芯片上解释执行 PIC 固件，并把虚拟 GPIO 映射到实物引脚 |
 | Tang Nano 1K FPGA | 用 Verilog 实现 PIC10F200 核心，固件随位流保存并从片上 BSRAM 取指 |
 
 Web 使用 `examples/*/diagram.json` 描述电路。每颗 MCU 可以设置独立 HEX，
@@ -49,9 +50,10 @@ make run-web EXAMPLE=button
 .\frontends\web\scripts\start.ps1 -Example button
 ```
 
-STM32F103 和 FPGA 的构建、烧录依赖各自工具链，参见：
+裸机端口和 FPGA 的构建、烧录依赖各自工具链，参见：
 
 - [STM32F103 移植与烧录](docs/ports/stm32f103.md)
+- [PY32F002A 移植与烧录](docs/ports/py32f002a.md)
 - [Tang Nano 1K FPGA 实现](fpga/README.md)
 
 ## 示例
@@ -80,6 +82,7 @@ PicEmu/
 │   └── web/                Web 页面、本地服务和 C 调试后端
 ├── examples/               PIC XC8 固件及 Web 电路图
 ├── ports/stm32f103/        STM32F103 裸机端口
+├── ports/py32f002a/        PY32F002A 裸机端口及所需设备支持文件
 ├── fpga/                   Tang Nano 1K Verilog 实现
 ├── tests/                  单元、集成和 Web 后端测试
 └── docs/                   分主题文档

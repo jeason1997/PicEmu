@@ -17,6 +17,7 @@
 ## 端口与硬件
 
 - [STM32F103 端口](ports/stm32f103.md)：时钟、GPIO 映射、构建、日志和烧录。
+- [PY32F002A 端口](ports/py32f002a.md)：48 MHz 时钟、GPIO 映射、构建和烧录。
 - [Tang Nano 1K FPGA](../fpga/README.md)：RTL 核心、BSRAM 程序存储器、
   OSS-CAD-Suite 构建和烧录。
 

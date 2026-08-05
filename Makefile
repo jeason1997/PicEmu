@@ -58,7 +58,8 @@ ALL_OBJECTS := $(sort $(CLI_OBJECTS) $(UNIT_TEST_OBJECTS) \
 DEPFILES := $(ALL_OBJECTS:.o=.d)
 
 .PHONY: all clean firmware example-firmware run test unit-test integration-test \
-	web web-core run-web stm32 stm32-host-check stm32-host-test
+	web web-core run-web stm32 stm32-host-check stm32-host-test \
+	py32 py32-check py32-host-test
 
 all: $(TARGET)
 
@@ -116,6 +117,15 @@ stm32-host-check:
 stm32-host-test:
 	$(MAKE) -C ports/stm32f103 host-test
 
+py32:
+	$(MAKE) -C ports/py32f002a
+
+py32-check:
+	$(MAKE) -C ports/py32f002a check
+
+py32-host-test:
+	$(MAKE) -C ports/py32f002a host-test
+
 clean:
 	rm -rf $(BUILD_DIR)
 	rm -rf frontends/web/build
@@ -123,5 +133,6 @@ clean:
 	find fpga -type f -name '___module_export.json' -delete
 	$(MAKE) -C examples clean
 	$(MAKE) -C ports/stm32f103 clean
+	$(MAKE) -C ports/py32f002a clean
 
 -include $(DEPFILES)
